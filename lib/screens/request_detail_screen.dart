@@ -13,6 +13,14 @@ class RequestDetailsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final statusUpper = request.status.toUpperCase();
+    final needsPayment = statusUpper == 'PENDING FOR PAYMENT';
+    final pendingCompletion = statusUpper == 'PENDING TO COMPLETE';
+    final statusNote = needsPayment
+      ? "Payment is required to continue processing your request. Please complete your payment to proceed."
+      : pendingCompletion
+        ? "Payment received. Your request is pending completion."
+        : "Your request is being processed.";
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
@@ -47,8 +55,12 @@ class RequestDetailsScreen extends StatelessWidget {
                 child: Text(request.status, style: TextStyle(color: Colors.yellow.shade800, fontWeight: FontWeight.bold)),
               ),
               SizedBox(height: 10.h),
-              const Text("Payment is required to continue processing your request. Please complete your payment to proceed.",
-                style: TextStyle(color: Colors.red, fontSize: 11),
+              Text(
+                statusNote,
+                style: TextStyle(
+                  color: needsPayment ? Colors.red : Colors.black54,
+                  fontSize: 11,
+                ),
               ),
             ]),
             SizedBox(height: 15.h),
@@ -58,16 +70,22 @@ class RequestDetailsScreen extends StatelessWidget {
               const Divider(),
               _buildInfoRow("Total Amount Due:", "PHP 110", isBold: true),
               SizedBox(height: 15.h),
-              Align(
-                alignment: Alignment.centerRight,
-                child: ElevatedButton(
-                  onPressed: () {
-                     Navigator.push(context, MaterialPageRoute(builder: (context) => PaymentDetailsScreen(request: request)));
-                  },
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF233446)),
-                  child: CustomFont(text: "Pay now", color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14.sp),
+              if (needsPayment)
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => PaymentDetailsScreen(request: request),
+                        ),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF233446)),
+                    child: CustomFont(text: "Pay now", color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14.sp),
+                  ),
                 ),
-              ),
             ]),
           ],
         ),

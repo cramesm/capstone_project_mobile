@@ -7,6 +7,7 @@ import '../widgets/custom_font.dart';
 import 'package:flutter/gestures.dart';
 import '../widgets/custom_inkwell_button.dart';
 import '../services/mongo_data_api_service.dart';
+import 'package:flutter/services.dart';
 
 class PasswordScreen extends StatefulWidget {
   const PasswordScreen({super.key});
@@ -18,6 +19,8 @@ class PasswordScreen extends StatefulWidget {
 class _PasswordScreenState extends State<PasswordScreen> {
   final List<TextEditingController> _otpControllers =
       List.generate(6, (index) => TextEditingController());
+  final List<FocusNode> _otpFocusNodes =
+      List.generate(6, (index) => FocusNode());
 
   final TextEditingController _emailController = TextEditingController();
   bool _isRequestingOtp = false;
@@ -127,6 +130,39 @@ class _PasswordScreenState extends State<PasswordScreen> {
           _isVerifyingOtp = false;
         });
       }
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final controller in _otpControllers) {
+      controller.dispose();
+    }
+    for (final node in _otpFocusNodes) {
+      node.dispose();
+    }
+    _emailController.dispose();
+    super.dispose();
+  }
+
+  void _handleOtpChange(String value, int index) {
+    if (value.isEmpty) {
+      if (index > 0) {
+        FocusScope.of(context).requestFocus(_otpFocusNodes[index - 1]);
+      }
+      return;
+    }
+
+    if (!RegExp(r'^\d$').hasMatch(value)) {
+      _otpControllers[index].clear();
+      _showValidationError('Number only is acceptable on OTP');
+      return;
+    }
+
+    if (index < _otpFocusNodes.length - 1) {
+      FocusScope.of(context).requestFocus(_otpFocusNodes[index + 1]);
+    } else {
+      FocusScope.of(context).unfocus();
     }
   }
 
@@ -325,17 +361,23 @@ class _PasswordScreenState extends State<PasswordScreen> {
       ),
       child: TextField(
         controller: _otpControllers[index],
+        focusNode: _otpFocusNodes[index],
        
         textAlign: TextAlign.center,
         keyboardType: TextInputType.number,
         style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold, color: FB_DARK_PRIMARY),
         maxLength: 1,
-        onChanged: (value) {
-          if (value.isNotEmpty) {
-            if (!RegExp(r'^[0-9]$').hasMatch(value)) {
-              _otpControllers[index].clear();
-              _showValidationError('Number only is acceptable on OTP');
-            }
+        inputFormatters: [
+          FilteringTextInputFormatter.digitsOnly,
+        ],
+        textInputAction:
+            index == _otpControllers.length - 1 ? TextInputAction.done : TextInputAction.next,
+        onChanged: (value) => _handleOtpChange(value, index),
+        onSubmitted: (_) {
+          if (index < _otpFocusNodes.length - 1) {
+            FocusScope.of(context).requestFocus(_otpFocusNodes[index + 1]);
+          } else {
+            FocusScope.of(context).unfocus();
           }
         },
         decoration: const InputDecoration(

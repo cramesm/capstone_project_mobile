@@ -24,21 +24,17 @@ const {
   ALLOWED_ORIGIN = '*',
   MAILBOXLAYER_ACCESS_KEY = '',
   OTP_TTL_MINUTES = '10',
-  OTP_DEV_MODE = 'true',
+  OTP_DEV_MODE = 'false',
   JWT_SECRET = '',
   JWT_ACCESS_TTL_MINUTES = '15',
   JWT_REFRESH_TTL_DAYS = '30',
   JWT_ISSUER = 'verifitor',
-  SMTP_HOST = '',
+  SMTP_HOST = 'smtp-relay.brevo.com',
   SMTP_PORT = '587',
   SMTP_SECURE = 'false',
   SMTP_USER = '',
   SMTP_PASS = '',
-  SMTP_FROM = 'Verifitor <no-reply@verifitor.local>',
-  TEMP_USER_ENABLED = 'false',
-  TEMP_USER_EMAIL = 'a@temp.com',
-  TEMP_USER_PASSWORD = 'TempPass!123',
-  TEMP_USER_ROLE = 'alumni',
+  SMTP_FROM = 'Verifitor <andreisembrano8@gmail.com>',
 } = process.env;
 
 const dbEnabled = DISABLE_DB !== 'true';
@@ -106,8 +102,10 @@ app.use('/auth', authLimiter);
 const client = dbEnabled ? new MongoClient(MONGODB_URI) : null;
 let users;
 let receipts;
+let requests;
 const memoryUsers = new Map();
 const memoryReceipts = [];
+const memoryRequests = [];
 
 const emailRegex = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
 const passwordRegex =
@@ -115,7 +113,6 @@ const passwordRegex =
 
 const otpStore = new Map();
 const registrationOtpStore = new Map();
-const loginOtpStore = new Map();
 const resetTokenStore = new Map();
 
 const smtpEnabled = Boolean(SMTP_HOST && SMTP_PORT && SMTP_USER && SMTP_PASS);
@@ -152,18 +149,27 @@ function buildUserResponse(user) {
 
 function buildProfileResponse(user) {
   if (!user) return null;
+  const role = String(user.role || '').trim().toLowerCase();
+  const isStudent = role === 'student';
+  const schoolEmail = isStudent ? user.schoolEmail || '' : '';
   return {
     id: user._id || user.id,
     firstName: user.firstName,
     lastName: user.lastName,
-    email: user.email,
-    personalEmail: user.personalEmail || user.email || '',
-    role: user.role,
-    schoolEmail: user.schoolEmail || '',
-    studentId: user.studentId || '',
+    email: isStudent && schoolEmail ? schoolEmail : user.email,
+    personalEmail: isStudent ? '' : user.personalEmail || user.email || '',
+    role: role || 'alumni',
+    schoolEmail,
+    studentId: isStudent ? user.studentId || '' : '',
     yearLevel: user.yearLevel || '',
     program: user.program || '',
   };
+}
+
+function normalizeRole(role) {
+  const normalized = String(role || '').trim().toLowerCase();
+  if (normalized === 'student') return 'student';
+  return 'alumni';
 }
 
 async function getUserById(id) {
@@ -363,6 +369,106 @@ async function createReceiptRecord(receipt) {
   return id;
 }
 
+async function createRequestRecord(request) {
+  if (dbEnabled) {
+    const result = await requests.insertOne(request);
+    return result.insertedId;
+  }
+
+  const id = makeUserId();
+  memoryRequests.push({ ...request, _id: id });
+  return id;
+}
+
+async function updateRequestStatusForPayment({
+  userId,
+  docName,
+  purpose,
+  paymentType,
+}) {
+  if (!userId || !docName || !purpose) return null;
+
+  const updates = {
+    status: 'pending_completion',
+    paymentType,
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (dbEnabled) {
+    const record = await requests.findOne(
+      { userId, docName, purpose },
+      { sort: { createdAt: -1 } },
+    );
+    if (!record?._id) return null;
+    await requests.updateOne({ _id: record._id }, { $set: updates });
+    return record._id;
+  }
+
+  const recordIndex = [...memoryRequests]
+    .reverse()
+    .findIndex(
+      (record) =>
+        String(record.userId) === String(userId) &&
+        record.docName === docName &&
+        record.purpose === purpose,
+    );
+
+  if (recordIndex < 0) return null;
+  const actualIndex = memoryRequests.length - 1 - recordIndex;
+  memoryRequests[actualIndex] = {
+    ...memoryRequests[actualIndex],
+    ...updates,
+  };
+  return memoryRequests[actualIndex]._id || memoryRequests[actualIndex].id;
+}
+
+function buildRequestResponse(record) {
+  if (!record) return null;
+  const id = record._id || record.id;
+  return {
+    id: id ? String(id) : '',
+    docName: record.docName || '',
+    purpose: record.purpose || '',
+    status: record.status || 'pending',
+    createdAt: record.createdAt || new Date().toISOString(),
+    updatedAt: record.updatedAt || record.createdAt || new Date().toISOString(),
+  };
+}
+
+function parseStatusFilter(value) {
+  if (!value) return [];
+  return String(value)
+    .split(',')
+    .map((status) => status.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+async function listRequestsForUser(user, statuses) {
+  const userId = user?._id || user?.id;
+  if (!userId) return [];
+
+  if (dbEnabled) {
+    const query = { userId };
+    if (statuses && statuses.length > 0) {
+      query.status = { $in: statuses };
+    }
+    return requests.find(query).sort({ createdAt: -1 }).toArray();
+  }
+
+  const userIdValue = String(userId);
+  let items = memoryRequests.filter(
+    (record) => String(record.userId) === userIdValue,
+  );
+  if (statuses && statuses.length > 0) {
+    items = items.filter((record) =>
+      statuses.includes(String(record.status || '').toLowerCase()),
+    );
+  }
+  return items.sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+}
+
 async function upsertUserDocument(user) {
   if (dbEnabled) {
     const { createdAt, ...userSet } = user;
@@ -475,7 +581,7 @@ function makeResetToken() {
 function cleanupOtpData() {
   const now = Date.now();
 
-  for (const store of [otpStore, registrationOtpStore, loginOtpStore]) {
+  for (const store of [otpStore, registrationOtpStore]) {
     for (const [email, value] of store.entries()) {
       if (value.expiresAt <= now) store.delete(email);
     }
@@ -531,11 +637,19 @@ async function sendOtpResponse(res, { email, otp, purpose }) {
     });
   }
 
-  await sendOtpEmail({ email, otp, purpose });
-  return res.json({
-    success: true,
-    message: 'OTP sent to your email.',
-  });
+  try {
+    await sendOtpEmail({ email, otp, purpose });
+    return res.json({
+      success: true,
+      message: 'OTP sent to your email.',
+    });
+  } catch (error) {
+    console.error('OTP email failed:', error?.message || error);
+    return res.status(502).json({
+      success: false,
+      message: 'Failed to send OTP email. Check SMTP credentials and sender.',
+    });
+  }
 }
 
 function validateRegisterPayload(body) {
@@ -691,6 +805,12 @@ app.post(
       };
 
       const receiptId = await createReceiptRecord(receipt);
+      await updateRequestStatusForPayment({
+        userId: receipt.userId,
+        docName: receipt.docName,
+        purpose: receipt.purpose,
+        paymentType: receipt.paymentType,
+      });
       return res.status(201).json({
         success: true,
         receiptId,
@@ -701,6 +821,82 @@ app.post(
     }
   },
 );
+
+app.post('/requests', requireAuth, async (req, res, next) => {
+  try {
+    const docName = String(req.body?.docName || '').trim();
+    const purpose = String(req.body?.purpose || '').trim();
+
+    if (!docName) {
+      return res.status(400).json({
+        success: false,
+        message: 'Document name is required.',
+      });
+    }
+
+    if (!purpose) {
+      return res.status(400).json({
+        success: false,
+        message: 'Purpose is required.',
+      });
+    }
+
+    const user = await getUserFromAuth(req.auth);
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: 'User not found.' });
+    }
+
+    const requestRecord = {
+      userId: user._id || user.id,
+      email: user.email,
+      role: user.role || '',
+      firstName: user.firstName || '',
+      lastName: user.lastName || '',
+      personalEmail: user.personalEmail || user.email || '',
+      schoolEmail: user.schoolEmail || '',
+      studentId: user.role === 'alumni' ? '' : user.studentId || '',
+      yearGraduated: user.role === 'alumni' ? user.yearLevel || '' : '',
+      yearLevel: user.role === 'alumni' ? '' : user.yearLevel || '',
+      program: user.program || '',
+      docName,
+      purpose,
+      status: 'pending_payment',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const requestId = await createRequestRecord(requestRecord);
+    return res.status(201).json({
+      success: true,
+      requestId: String(requestId),
+      request: { ...requestRecord, id: String(requestId) },
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.get('/requests', requireAuth, async (req, res, next) => {
+  try {
+    const user = await getUserFromAuth(req.auth);
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: 'User not found.' });
+    }
+
+    const statusFilters = parseStatusFilter(req.query?.status);
+    const records = await listRequestsForUser(user, statusFilters);
+    return res.json({
+      success: true,
+      requests: records.map(buildRequestResponse).filter(Boolean),
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
 
 app.put('/profile', requireAuth, async (req, res, next) => {
   try {
@@ -716,40 +912,86 @@ app.put('/profile', requireAuth, async (req, res, next) => {
         .json({ success: false, message: 'User not found.' });
     }
 
-    const nextPersonalEmail =
-      parsed.personalEmail || user.personalEmail || user.email;
-    const nextEmail = normalizeEmail(nextPersonalEmail);
-    if (!emailRegex.test(nextEmail)) {
-      return res
-        .status(400)
-        .json({ success: false, message: 'Invalid login email address.' });
-    }
+    const role = normalizeRole(user.role);
+    const isStudent = role === 'student';
 
-    if (nextEmail !== user.email) {
-      const existing = await getUserByEmail(nextEmail);
-      if (
-        existing &&
-        String(existing._id || existing.id || '') !==
-          String(user._id || user.id || '')
-      ) {
-        return res
-          .status(409)
-          .json({ success: false, message: 'Email already exists.' });
+    if (isStudent) {
+      const schoolEmail = normalizeEmail(parsed.schoolEmail || '');
+      if (!emailRegex.test(schoolEmail)) {
+        return res.status(400).json({
+          success: false,
+          message: 'School email is required for student accounts.',
+        });
       }
+
+      if (!parsed.studentId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Student ID is required for student accounts.',
+        });
+      }
+
+      if (schoolEmail !== user.email) {
+        const existing = await getUserByEmail(schoolEmail);
+        if (
+          existing &&
+          String(existing._id || existing.id || '') !==
+            String(user._id || user.id || '')
+        ) {
+          return res
+            .status(409)
+            .json({ success: false, message: 'Email already exists.' });
+        }
+      }
+
+      const updates = {
+        firstName: parsed.firstName,
+        lastName: parsed.lastName,
+        schoolEmail,
+        personalEmail: '',
+        email: schoolEmail,
+        studentId: parsed.studentId,
+        yearLevel: parsed.yearLevel,
+        program: parsed.program,
+      };
+
+      await updateUserProfile(user, updates);
+    } else {
+      const nextPersonalEmail =
+        parsed.personalEmail || user.personalEmail || user.email;
+      const nextEmail = normalizeEmail(nextPersonalEmail);
+      if (!emailRegex.test(nextEmail)) {
+        return res
+          .status(400)
+          .json({ success: false, message: 'Invalid login email address.' });
+      }
+
+      if (nextEmail !== user.email) {
+        const existing = await getUserByEmail(nextEmail);
+        if (
+          existing &&
+          String(existing._id || existing.id || '') !==
+            String(user._id || user.id || '')
+        ) {
+          return res
+            .status(409)
+            .json({ success: false, message: 'Email already exists.' });
+        }
+      }
+
+      const updates = {
+        firstName: parsed.firstName,
+        lastName: parsed.lastName,
+        schoolEmail: '',
+        personalEmail: nextPersonalEmail,
+        email: nextEmail,
+        studentId: '',
+        yearLevel: parsed.yearLevel,
+        program: parsed.program,
+      };
+
+      await updateUserProfile(user, updates);
     }
-
-    const updates = {
-      firstName: parsed.firstName,
-      lastName: parsed.lastName,
-      schoolEmail: parsed.schoolEmail,
-      personalEmail: nextPersonalEmail,
-      email: nextEmail,
-      studentId: parsed.studentId,
-      yearLevel: parsed.yearLevel,
-      program: parsed.program,
-    };
-
-    await updateUserProfile(user, updates);
 
     if (parsed.newPassword) {
       const passwordHash = await bcrypt.hash(parsed.newPassword, 12);
@@ -774,7 +1016,28 @@ app.post('/auth/register', async (req, res, next) => {
       return res.status(400).json({ success: false, message: parsed.error });
     }
 
-    const mailboxCheck = await validateEmailWithMailboxlayer(parsed.email);
+    const role = normalizeRole(req.body?.role);
+    const isStudent = role === 'student';
+    const schoolEmail = normalizeEmail(parsed.schoolEmail || parsed.email);
+
+    if (isStudent) {
+      if (!emailRegex.test(schoolEmail)) {
+        return res.status(400).json({
+          success: false,
+          message: 'School email is required for student accounts.',
+        });
+      }
+      if (!parsed.studentId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Student ID is required for student accounts.',
+        });
+      }
+    }
+
+    const mailboxCheck = await validateEmailWithMailboxlayer(
+      isStudent ? schoolEmail : parsed.email,
+    );
     if (!mailboxCheck.isValid) {
       return res.status(400).json({
         success: false,
@@ -782,7 +1045,7 @@ app.post('/auth/register', async (req, res, next) => {
       });
     }
 
-    const existing = await getUserByEmail(parsed.email);
+    const existing = await getUserByEmail(isStudent ? schoolEmail : parsed.email);
     if (existing) {
       return res
         .status(409)
@@ -794,12 +1057,12 @@ app.post('/auth/register', async (req, res, next) => {
     const result = await createUserDocument({
       firstName: parsed.firstName,
       lastName: parsed.lastName,
-      email: parsed.email,
-      personalEmail: parsed.email,
+      email: isStudent ? schoolEmail : parsed.email,
+      personalEmail: isStudent ? '' : parsed.email,
       passwordHash,
-      role: 'alumni',
-      schoolEmail: parsed.schoolEmail,
-      studentId: parsed.studentId,
+      role,
+      schoolEmail: isStudent ? schoolEmail : '',
+      studentId: isStudent ? parsed.studentId : '',
       yearLevel: parsed.yearLevel,
       program: parsed.program,
       createdAt: new Date().toISOString(),
@@ -824,7 +1087,28 @@ app.post('/auth/register/request-otp', async (req, res, next) => {
       return res.status(400).json({ success: false, message: parsed.error });
     }
 
-    const mailboxCheck = await validateEmailWithMailboxlayer(parsed.email);
+    const role = normalizeRole(req.body?.role);
+    const isStudent = role === 'student';
+    const schoolEmail = normalizeEmail(parsed.schoolEmail || parsed.email);
+
+    if (isStudent) {
+      if (!emailRegex.test(schoolEmail)) {
+        return res.status(400).json({
+          success: false,
+          message: 'School email is required for student accounts.',
+        });
+      }
+      if (!parsed.studentId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Student ID is required for student accounts.',
+        });
+      }
+    }
+
+    const mailboxCheck = await validateEmailWithMailboxlayer(
+      isStudent ? schoolEmail : parsed.email,
+    );
     if (!mailboxCheck.isValid) {
       return res.status(400).json({
         success: false,
@@ -832,18 +1116,25 @@ app.post('/auth/register/request-otp', async (req, res, next) => {
       });
     }
 
-    const existing = await getUserByEmail(parsed.email);
+    const existing = await getUserByEmail(isStudent ? schoolEmail : parsed.email);
     if (existing) {
       return res
         .status(409)
         .json({ success: false, message: 'Email already exists.' });
     }
 
-    const otp = putOtp(registrationOtpStore, parsed.email, {
-      payload: parsed,
+    const otp = putOtp(registrationOtpStore, isStudent ? schoolEmail : parsed.email, {
+      payload: {
+        ...parsed,
+        role,
+        email: isStudent ? schoolEmail : parsed.email,
+        personalEmail: isStudent ? '' : parsed.email,
+        schoolEmail: isStudent ? schoolEmail : '',
+        studentId: isStudent ? parsed.studentId : '',
+      },
     });
     return await sendOtpResponse(res, {
-      email: parsed.email,
+      email: isStudent ? schoolEmail : parsed.email,
       otp,
       purpose: 'registration',
     });
@@ -895,7 +1186,7 @@ app.post('/auth/register/verify-otp', async (req, res, next) => {
         .json({ success: false, message: 'Missing registration payload.' });
     }
 
-    const existing = await users.findOne({ email });
+    const existing = await users.findOne({ email: payload.email });
     if (existing) {
       return res
         .status(409)
@@ -907,11 +1198,11 @@ app.post('/auth/register/verify-otp', async (req, res, next) => {
       firstName: payload.firstName,
       lastName: payload.lastName,
       email: payload.email,
-      personalEmail: payload.email,
+      personalEmail: payload.personalEmail || '',
       passwordHash,
-      role: 'alumni',
-      schoolEmail: payload.schoolEmail,
-      studentId: payload.studentId,
+      role: payload.role || 'alumni',
+      schoolEmail: payload.schoolEmail || '',
+      studentId: payload.studentId || '',
       yearLevel: payload.yearLevel,
       program: payload.program,
       createdAt: new Date().toISOString(),
@@ -931,6 +1222,7 @@ app.post('/auth/login', async (req, res, next) => {
   try {
     const email = normalizeEmail(req.body?.email);
     const password = String(req.body?.password || '').trim();
+    const requestedRole = String(req.body?.role || '').trim().toLowerCase();
 
     if (!emailRegex.test(email) || password.length < 8) {
       return res
@@ -943,6 +1235,16 @@ app.post('/auth/login', async (req, res, next) => {
       return res
         .status(401)
         .json({ success: false, message: 'Invalid email or password.' });
+    }
+
+    if (requestedRole) {
+      const actualRole = String(user.role || '').trim().toLowerCase();
+      if (!actualRole || actualRole !== requestedRole) {
+        return res.status(403).json({
+          success: false,
+          message: 'Account role does not match the selected login role.',
+        });
+      }
     }
 
     const isMatch = await bcrypt.compare(password, user.passwordHash || '');
@@ -957,101 +1259,6 @@ app.post('/auth/login', async (req, res, next) => {
       success: true,
       message: 'Login successful.',
       user: buildUserResponse(user),
-      ...session,
-    });
-  } catch (error) {
-    return next(error);
-  }
-});
-
-app.post('/auth/login/request-otp', async (req, res, next) => {
-  try {
-    cleanupOtpData();
-
-    const email = normalizeEmail(req.body?.email);
-    const password = String(req.body?.password || '').trim();
-
-    if (!emailRegex.test(email) || password.length < 8) {
-      return res
-        .status(400)
-        .json({ success: false, message: 'Invalid email or password format.' });
-    }
-
-    const user = await getUserByEmail(email);
-    if (!user) {
-      return res
-        .status(401)
-        .json({ success: false, message: 'Invalid email or password.' });
-    }
-
-    const isMatch = await bcrypt.compare(password, user.passwordHash || '');
-    if (!isMatch) {
-      return res
-        .status(401)
-        .json({ success: false, message: 'Invalid email or password.' });
-    }
-
-    const otp = putOtp(loginOtpStore, email, {
-      user: buildUserResponse(user),
-    });
-
-    return await sendOtpResponse(res, {
-      email,
-      otp,
-      purpose: 'login',
-    });
-  } catch (error) {
-    return next(error);
-  }
-});
-
-app.post('/auth/login/verify-otp', async (req, res, next) => {
-  try {
-    cleanupOtpData();
-
-    const email = normalizeEmail(req.body?.email);
-    const otp = String(req.body?.otp || '').trim();
-
-    if (!emailRegex.test(email) || !/^\d{6}$/.test(otp)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid email or OTP format.',
-      });
-    }
-
-    const record = loginOtpStore.get(email);
-    if (!record || record.expiresAt <= Date.now()) {
-      loginOtpStore.delete(email);
-      return res.status(400).json({
-        success: false,
-        message: 'OTP expired or not found. Please request a new one.',
-      });
-    }
-
-    if (record.otp !== otp) {
-      record.attempts += 1;
-      loginOtpStore.set(email, record);
-
-      if (record.attempts >= 5) {
-        loginOtpStore.delete(email);
-      }
-
-      return res.status(401).json({ success: false, message: 'Invalid OTP.' });
-    }
-
-    loginOtpStore.delete(email);
-
-    if (!record.user) {
-      return res
-        .status(400)
-        .json({ success: false, message: 'Missing login session data.' });
-    }
-
-    const session = await issueTokensForUser(record.user);
-    return res.json({
-      success: true,
-      message: 'Login OTP verified.',
-      user: record.user,
       ...session,
     });
   } catch (error) {
@@ -1273,9 +1480,20 @@ async function start() {
       const db = client.db(MONGODB_DB_NAME);
       users = db.collection(MONGODB_USERS_COLLECTION);
       receipts = db.collection('receipts');
+      requests = db.collection('requests');
       try {
+        // Drop the old non-sparse username index if it exists
+        try {
+          await users.dropIndex('username_1');
+        } catch (err) {
+          // Index doesn't exist, that's fine
+        }
         await users.createIndex({ email: 1 }, { unique: true });
+        // Create sparse unique index on username (allows multiple null values)
+        await users.createIndex({ username: 1 }, { unique: true, sparse: true });
         await receipts.createIndex({ userId: 1, createdAt: -1 });
+        await requests.createIndex({ userId: 1, createdAt: -1 });
+        await requests.createIndex({ status: 1, createdAt: -1 });
       } catch (err) {
         console.warn('Could not create indexes (permission denied):', err.message);
       }
@@ -1284,28 +1502,6 @@ async function start() {
     }
   } else {
     console.warn('DISABLE_DB is true. Using in-memory users only.');
-  }
-
-  if (TEMP_USER_ENABLED === 'true') {
-    const tempEmail = normalizeEmail(TEMP_USER_EMAIL);
-    if (!emailRegex.test(tempEmail) || !passwordRegex.test(TEMP_USER_PASSWORD)) {
-      console.warn('TEMP_USER_* is invalid. Skipping temp user creation.');
-    } else {
-      const passwordHash = await bcrypt.hash(TEMP_USER_PASSWORD, 12);
-      await upsertUserDocument({
-        firstName: 'Temp',
-        lastName: 'User',
-        email: tempEmail,
-        personalEmail: tempEmail,
-        passwordHash,
-        role: TEMP_USER_ROLE,
-        updatedAt: new Date().toISOString(),
-        createdAt: new Date().toISOString(),
-      });
-      console.log(
-        `Temp user ready: ${tempEmail}${dbEnabled ? '' : ' (in-memory)'}`,
-      );
-    }
   }
 
   app.listen(Number(PORT), () => {

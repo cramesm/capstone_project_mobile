@@ -19,16 +19,12 @@ class LogInScreen extends StatefulWidget {
 }
 
 class _LogInScreenState extends State<LogInScreen> {
-  static const String _tempEmail = 'a@temp.com';
-  static const String _tempPassword = 'TempPass!123';
-
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
 
   bool _isPasswordVisible = false;
   bool _isLoading = false;
-  bool _isOtpLoading = false;
   final RegExp _emailRegex =
       RegExp(r'^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$');
 
@@ -41,11 +37,13 @@ class _LogInScreenState extends State<LogInScreen> {
 
     final email = emailController.text.trim();
     final password = passwordController.text.trim();
+    final role = widget.isStudent ? 'student' : 'alumni';
 
     try {
       final isValid = await MongoDataApiService.instance.login(
         email: email,
         password: password,
+        role: role,
       );
 
       if (!mounted) return;
@@ -82,143 +80,6 @@ class _LogInScreenState extends State<LogInScreen> {
         });
       }
     }
-  }
-
-  Future<String?> _promptForOtp({String? otpHint}) async {
-    final controller = TextEditingController(text: otpHint ?? '');
-    final result = await showDialog<String>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) {
-        return AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14.r)),
-          title: const Text('Verify OTP'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (otpHint != null)
-                const Text(
-                  'Dev mode: OTP is prefilled.',
-                  style: TextStyle(fontSize: 12, color: Colors.black54),
-                ),
-              SizedBox(height: 12.h),
-              TextField(
-                controller: controller,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  hintText: 'Enter OTP',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, controller.text),
-              child: const Text('Verify'),
-            ),
-          ],
-        );
-      },
-    );
-
-    controller.dispose();
-    return result;
-  }
-
-  Future<void> _handleLoginWithOtp() async {
-    if (!_formKey.currentState!.validate() || _isOtpLoading) return;
-
-    setState(() {
-      _isOtpLoading = true;
-    });
-
-    final email = emailController.text.trim();
-    final password = passwordController.text.trim();
-
-    String? otpHint;
-    try {
-      otpHint = await MongoDataApiService.instance.requestLoginOtp(
-        email: email,
-        password: password,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            "OTP request failed: ${e.toString().replaceFirst('Exception: ', '')}",
-          ),
-          backgroundColor: Colors.red,
-        ),
-      );
-      setState(() {
-        _isOtpLoading = false;
-      });
-      return;
-    }
-
-    if (!mounted) return;
-    setState(() {
-      _isOtpLoading = false;
-    });
-
-    if (otpHint == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('OTP sent to your email.')),
-      );
-    }
-
-    final otp = await _promptForOtp(otpHint: otpHint);
-    if (otp == null || otp.trim().isEmpty) {
-      return;
-    }
-
-    setState(() {
-      _isOtpLoading = true;
-    });
-
-    try {
-      await MongoDataApiService.instance.verifyLoginOtp(
-        email: email,
-        otp: otp.trim(),
-      );
-
-      if (!mounted) return;
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => const HomeScreen(),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            "OTP verification failed: ${e.toString().replaceFirst('Exception: ', '')}",
-          ),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isOtpLoading = false;
-        });
-      }
-    }
-  }
-
-  void _fillTempAccount() {
-    emailController.text = _tempEmail;
-    passwordController.text = _tempPassword;
-    setState(() {});
   }
 
   @override
@@ -364,34 +225,6 @@ class _LogInScreenState extends State<LogInScreen> {
                           fontSize: 24.sp,
                           fontWeight: FontWeight.bold,
                           bgColor: FB_DARK_PRIMARY,
-                        ),
-
-                        SizedBox(height: 12.h),
-
-                        CustomInkwellButton(
-                          onTap: _handleLoginWithOtp,
-                          height: 50.h,
-                          width: ScreenUtil().screenWidth,
-                          buttonName: _isOtpLoading
-                              ? 'Requesting OTP...'
-                              : 'Login with OTP',
-                          fontColor: FB_DARK_PRIMARY,
-                          fontSize: 18.sp,
-                          fontWeight: FontWeight.w600,
-                          bgColor: FB_BACKGROUND_LIGHT,
-                        ),
-
-                        SizedBox(height: 12.h),
-
-                        CustomInkwellButton(
-                          onTap: _fillTempAccount,
-                          height: 45.h,
-                          width: ScreenUtil().screenWidth,
-                          buttonName: 'Use Temp Account',
-                          fontColor: FB_DARK_PRIMARY,
-                          fontSize: 16.sp,
-                          fontWeight: FontWeight.w600,
-                          bgColor: FB_BACKGROUND_LIGHT,
                         ),
 
                         SizedBox(height: 25.h),

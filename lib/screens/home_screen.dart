@@ -1,12 +1,13 @@
 import 'package:capstone_project/screens/data_consent_screen.dart';
 import 'package:capstone_project/screens/pending_screen.dart';
 import 'package:capstone_project/screens/profile_screen.dart';
-import 'package:capstone_project/screens/history_screen.dart'; 
+import 'package:capstone_project/screens/history_screen.dart';
 import 'package:capstone_project/screens/notification_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../constants.dart';
 import '../models/notification_item.dart';
+import '../services/mongo_data_api_service.dart';
 
 class HomeScreen extends StatefulWidget {
   final int initialIndex;
@@ -18,10 +19,6 @@ class HomeScreen extends StatefulWidget {
     this.newRequest,
   });
 
-
-  static List<PendingRequest> globalRequests = [];
-  static List<HistoryItem> globalHistory = [];
-
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -30,6 +27,9 @@ class _HomeScreenState extends State<HomeScreen> {
   late int _selectedIndex;
   late PageController _pageController;
   late List<NotificationItem> _notifications;
+  List<PendingRequest> _pendingRequests = [];
+  List<HistoryItem> _historyItems = [];
+  bool _isLoadingRequests = false;
 
   @override
   void initState() {
@@ -55,25 +55,112 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     ];
 
-    if (widget.newRequest != null) {
-      
-      bool exists = HomeScreen.globalRequests.any((req) => 
-        req.dateCreated == widget.newRequest!.dateCreated);
+    _loadRequests();
+  }
 
-      if (!exists) {
-        HomeScreen.globalRequests.add(widget.newRequest!);
+  bool _isCompletedStatus(String status) {
+    final normalized = status.trim().toLowerCase();
+    return normalized == 'completed';
+  }
 
-        //Adds also the current request
-        HomeScreen.globalHistory.add(HistoryItem(
-          title: widget.newRequest!.docName,
-          date: widget.newRequest!.dateCreated,
-          purpose: "Document Request",
-          status: "Pending",
-          isApproved: false,
-        ));
+  bool _isApprovedStatus(String status) {
+    final normalized = status.trim().toLowerCase();
+    return normalized == 'approved' ||
+        normalized == 'released' ||
+        normalized == 'completed';
+  }
 
-        
+  String _displayStatus(String status) {
+    final normalized = status.trim().toLowerCase();
+    if (normalized.isEmpty) return 'PENDING FOR PAYMENT';
+    if (normalized == 'pending_payment' || normalized == 'pending for payment') {
+      return 'PENDING FOR PAYMENT';
+    }
+    if (normalized == 'pending_completion' || normalized == 'pending to complete') {
+      return 'PENDING TO COMPLETE';
+    }
+    return normalized.toUpperCase();
+  }
+
+  DateTime _parseRequestDate(dynamic value) {
+    if (value is String) {
+      final parsed = DateTime.tryParse(value);
+      if (parsed != null) return parsed;
+    } else if (value is int) {
+      return DateTime.fromMillisecondsSinceEpoch(value);
+    }
+    return DateTime.now();
+  }
+
+  void _mergeNewRequest(List<PendingRequest> pending) {
+    final newRequest = widget.newRequest;
+    if (newRequest == null) return;
+
+    final exists = pending.any((item) {
+      final timeDiff = item.dateCreated
+          .difference(newRequest.dateCreated)
+          .inMinutes
+          .abs();
+      return item.docName == newRequest.docName &&
+          item.purpose == newRequest.purpose &&
+          timeDiff < 1;
+    });
+
+    if (!exists && !_isCompletedStatus(newRequest.status)) {
+      pending.insert(0, newRequest);
+    }
+  }
+
+  Future<void> _loadRequests() async {
+    if (_isLoadingRequests) return;
+    setState(() {
+      _isLoadingRequests = true;
+    });
+
+    try {
+      final items = await MongoDataApiService.instance.fetchRequests();
+      final pending = <PendingRequest>[];
+      final history = <HistoryItem>[];
+
+      for (final item in items) {
+        final docName = item['docName']?.toString().trim() ?? '';
+        if (docName.isEmpty) continue;
+        final purpose = item['purpose']?.toString().trim() ?? '';
+        final statusRaw = item['status']?.toString().trim() ?? 'pending';
+        final createdAt = _parseRequestDate(item['createdAt']);
+        final status = _displayStatus(statusRaw);
+
+        if (_isCompletedStatus(statusRaw)) {
+          history.add(HistoryItem(
+            title: docName,
+            date: createdAt,
+            purpose: purpose,
+            status: status,
+            isApproved: _isApprovedStatus(statusRaw),
+          ));
+        } else {
+          pending.add(PendingRequest(
+            docName: docName,
+            purpose: purpose,
+            dateCreated: createdAt,
+            status: status,
+          ));
+        }
       }
+
+      _mergeNewRequest(pending);
+
+      if (!mounted) return;
+      setState(() {
+        _pendingRequests = pending;
+        _historyItems = history;
+        _isLoadingRequests = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isLoadingRequests = false;
+      });
     }
   }
 
@@ -106,6 +193,9 @@ class _HomeScreenState extends State<HomeScreen> {
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeInOut,
     );
+    if (value == 1 || value == 2) {
+      _loadRequests();
+    }
   }
 
 
@@ -118,11 +208,18 @@ class _HomeScreenState extends State<HomeScreen> {
           setState(() {
             _selectedIndex = page;
           });
+          if (page == 1 || page == 2) {
+            _loadRequests();
+          }
         },
         children: [
           _buildHomeContent(context),
-          PendingScreen(requestList: HomeScreen.globalRequests),
-          HistoryScreen(historyList: HomeScreen.globalHistory),
+          PendingScreen(
+            requestList: _isLoadingRequests ? [] : _pendingRequests,
+          ),
+          HistoryScreen(
+            historyList: _isLoadingRequests ? [] : _historyItems,
+          ),
         ],
       ),
       bottomNavigationBar: Container(

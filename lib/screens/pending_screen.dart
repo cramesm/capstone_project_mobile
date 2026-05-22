@@ -147,6 +147,8 @@ class _PendingScreenState extends State<PendingScreen> {
 
   Color _getStatusColor(String status) {
     switch (status.toUpperCase()) {
+      case "PENDING FOR PAYMENT": return Colors.orange;
+      case "PENDING TO COMPLETE": return Colors.blueGrey;
       case "RELEASED": return Colors.orange;
       case "PROCESSING": return Colors.green;
       case "APPROVED": return Colors.blue;

@@ -3,6 +3,7 @@ import 'package:capstone_project/screens/pending_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../widgets/custom_font.dart';
+import '../services/mongo_data_api_service.dart';
 
 class RequestFormScreen extends StatefulWidget {
   const RequestFormScreen({super.key});
@@ -17,6 +18,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
   String? _subDocType;
   String? _selectedPurpose;
   bool _isConfirmed = false;
+  bool _isSubmitting = false;
 
   final TextEditingController _otherPurposeController = TextEditingController();
 
@@ -96,7 +98,8 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
     );
   }
 
-  void _handleSubmission() {
+  Future<void> _handleSubmission() async {
+    if (_isSubmitting) return;
     // Check main requirements
     if (_mainDocType == null || _selectedPurpose == null) {
       _showErrorDialog("Please select the document type and purpose.");
@@ -127,14 +130,55 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
         ? _otherPurposeController.text.trim()
         : _selectedPurpose!;
 
+    if (finalPurpose.isEmpty) {
+      _showErrorDialog("Please specify the purpose of your request.");
+      return;
+    }
+
+    setState(() {
+      _isSubmitting = true;
+    });
+
+    Map<String, dynamic>? response;
+    try {
+      response = await MongoDataApiService.instance.createDocumentRequest(
+        docName: finalDocName,
+        purpose: finalPurpose,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            "Request failed: ${e.toString().replaceFirst('Exception: ', '')}",
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+      setState(() {
+        _isSubmitting = false;
+      });
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _isSubmitting = false;
+    });
+
     // Redirect to Pending Screen (Index 1 of your Home/Main layout)
     // Adjust 'HomeScreen' to match your actual Main/Home class name
+    final statusRaw = response?['request']?['status']?.toString() ?? '';
+    final displayStatus = statusRaw.trim().toLowerCase() == 'pending_completion'
+        ? 'PENDING TO COMPLETE'
+        : 'PENDING FOR PAYMENT';
+
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => SuccessfulScreen(
           request: PendingRequest(
-            status: "Pending",
+            status: displayStatus,
             purpose: finalPurpose,
             docName: finalDocName,
             dateCreated: DateTime.now(),
@@ -265,7 +309,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
             Align(
               alignment: Alignment.bottomRight,
               child: ElevatedButton(
-                onPressed: _handleSubmission,
+                onPressed: _isSubmitting ? null : _handleSubmission,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF233446), // Dark Navy
                   padding:
@@ -273,7 +317,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8.r)),
                 ),
-                child: Text("Submit",
+                child: Text(_isSubmitting ? "Submitting..." : "Submit",
                     style: TextStyle(
                         color: Colors.white,
                         fontSize: 16.sp,

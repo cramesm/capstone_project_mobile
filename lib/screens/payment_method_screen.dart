@@ -30,7 +30,7 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
       _onSiteReceiptBytes != null || _gcashReceiptBytes != null;
 
   Future<void> _pickReceipt({required bool isGcash}) async {
-    final source = isGcash ? ImageSource.gallery : ImageSource.camera;
+    final source = ImageSource.gallery;
     final file = await _picker.pickImage(
       source: source,
       maxWidth: 1600,
@@ -78,10 +78,16 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
       }
 
       if (!mounted) return;
+      final updatedRequest = PendingRequest(
+        docName: widget.request.docName,
+        purpose: widget.request.purpose,
+        dateCreated: widget.request.dateCreated,
+        status: 'PENDING TO COMPLETE',
+      );
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => SuccessfulScreen(request: widget.request),
+          builder: (context) => SuccessfulScreen(request: updatedRequest),
         ),
       );
     } catch (e) {
@@ -143,8 +149,8 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
                   SizedBox(height: 12.h),
                   _buildReceiptSection(
                     title: "Paid on site",
-                    description: "Upload a photo of the official receipt.",
-                    buttonLabel: "Take photo",
+                    description: "Upload the official receipt file.",
+                    buttonLabel: "Upload file",
                     onPressed: _isSubmitting
                         ? null
                         : () => _pickReceipt(isGcash: false),
@@ -154,8 +160,8 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
                   SizedBox(height: 12.h),
                   _buildReceiptSection(
                     title: "GCash payment",
-                    description: "Upload a screenshot of the receipt.",
-                    buttonLabel: "Upload screenshot",
+                    description: "Upload the GCash receipt file.",
+                    buttonLabel: "Upload file",
                     onPressed: _isSubmitting
                         ? null
                         : () => _pickReceipt(isGcash: true),

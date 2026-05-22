@@ -146,9 +146,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       _isSubmitting = true;
     });
 
-    String? otpHint;
     try {
-      otpHint = await MongoDataApiService.instance.requestRegisterOtp(
+      await MongoDataApiService.instance.createUser(
         firstName: firstNameController.text,
         lastName: lastNameController.text,
         email: email,
@@ -156,39 +155,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
         yearLevel: yearGraduated,
         program: program,
       );
-    } catch (e) {
-      if (!mounted) return;
-      _showValidationAlert(e.toString().replaceFirst('Exception: ', ''));
-      setState(() {
-        _isSubmitting = false;
-      });
-      return;
-    }
 
-    if (!mounted) return;
-    setState(() {
-      _isSubmitting = false;
-    });
-
-    if (otpHint == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("OTP sent to your email.")),
-      );
-    }
-
-    final otp = await _promptForOtp(otpHint: otpHint);
-    if (otp == null || otp.trim().isEmpty) {
-      return;
-    }
-
-    setState(() {
-      _isSubmitting = true;
-    });
-
-    try {
-      await MongoDataApiService.instance.verifyRegisterOtp(
+      final loggedIn = await MongoDataApiService.instance.login(
         email: email,
-        otp: otp.trim(),
+        password: pass,
       );
 
       if (!mounted) return;
@@ -197,7 +167,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
         const SnackBar(content: Text("Account created successfully!")),
       );
 
-      Navigator.pop(context);
+      if (!loggedIn) {
+        _showValidationAlert("Account created. Please log in to continue.");
+        Navigator.pop(context);
+        return;
+      }
+
+      Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
     } catch (e) {
       if (!mounted) return;
       _showValidationAlert(e.toString().replaceFirst('Exception: ', ''));
@@ -208,53 +184,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
         });
       }
     }
-  }
-
-  Future<String?> _promptForOtp({String? otpHint}) async {
-    final controller = TextEditingController(text: otpHint ?? '');
-    final result = await showDialog<String>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) {
-        return AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14.r)),
-          title: const Text('Verify OTP'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (otpHint != null)
-                const Text(
-                  'Dev mode: OTP is prefilled.',
-                  style: TextStyle(fontSize: 12, color: Colors.black54),
-                ),
-              SizedBox(height: 12.h),
-              TextField(
-                controller: controller,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  hintText: 'Enter OTP',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, controller.text),
-              child: const Text('Verify'),
-            ),
-          ],
-        );
-      },
-    );
-
-    controller.dispose();
-    return result;
   }
 
   Widget _buildAutocompleteField({

@@ -29,12 +29,20 @@ class MongoDataApiService {
 
   Future<_ApiResponse> _postJson(
     String path,
-    Map<String, dynamic> body,
-  ) async {
+    Map<String, dynamic> body, {
+    bool withAuth = false,
+  }) async {
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+    };
+    if (withAuth) {
+      headers.addAll(authHeaders());
+    }
+
     final response = await http
         .post(
           _uri(path),
-          headers: const {"Content-Type": "application/json"},
+          headers: headers,
           body: jsonEncode(body),
         )
         .timeout(_timeout);
@@ -261,12 +269,17 @@ class MongoDataApiService {
   Future<bool> login({
     required String email,
     required String password,
+    String? role,
   }) async {
     _clearSession();
-    final response = await _postJson('/auth/login', {
+    final body = {
       'email': email.trim(),
       'password': password.trim(),
-    });
+    };
+    if (role != null && role.trim().isNotEmpty) {
+      body['role'] = role.trim();
+    }
+    final response = await _postJson('/auth/login', body);
 
     if (response.statusCode == 200 && response.data['success'] == true) {
       _applySession(response.data, emailFallback: email);
@@ -278,41 +291,6 @@ class MongoDataApiService {
     }
 
     throw Exception(_messageFor(response.data, 'Login failed.'));
-  }
-
-  Future<String?> requestLoginOtp({
-    required String email,
-    required String password,
-  }) async {
-    _clearSession();
-    final response = await _postJson('/auth/login/request-otp', {
-      'email': email.trim(),
-      'password': password.trim(),
-    });
-
-    if (response.statusCode == 200 && response.data['success'] == true) {
-      final otp = response.data['otp'];
-      return otp == null ? null : otp.toString();
-    }
-
-    throw Exception(_messageFor(response.data, 'Failed to request OTP.'));
-  }
-
-  Future<void> verifyLoginOtp({
-    required String email,
-    required String otp,
-  }) async {
-    final response = await _postJson('/auth/login/verify-otp', {
-      'email': email.trim(),
-      'otp': otp.trim(),
-    });
-
-    if (response.statusCode == 200 && response.data['success'] == true) {
-      _applySession(response.data, emailFallback: email);
-      return;
-    }
-
-    throw Exception(_messageFor(response.data, 'OTP verification failed.'));
   }
 
   Future<void> refreshSession() async {
@@ -388,6 +366,61 @@ class MongoDataApiService {
     }
 
     throw Exception(_messageFor(decoded.data, 'Failed to upload receipt.'));
+  }
+
+  Future<Map<String, dynamic>> createDocumentRequest({
+    required String docName,
+    required String purpose,
+  }) async {
+    if (_accessToken == null) {
+      throw Exception('Not authenticated.');
+    }
+
+    final response = await _postJson(
+      '/requests',
+      {
+        'docName': docName.trim(),
+        'purpose': purpose.trim(),
+      },
+      withAuth: true,
+    );
+
+    if (response.statusCode == 201 && response.data['success'] == true) {
+      return response.data;
+    }
+
+    throw Exception(_messageFor(response.data, 'Failed to submit request.'));
+  }
+
+  Future<List<Map<String, dynamic>>> fetchRequests({
+    List<String>? statuses,
+  }) async {
+    if (_accessToken == null) {
+      throw Exception('Not authenticated.');
+    }
+
+    final filtered = (statuses ?? [])
+        .map((status) => status.trim())
+        .where((status) => status.isNotEmpty)
+        .toList();
+
+    final path = filtered.isEmpty
+        ? '/requests'
+        : '/requests?status=${Uri.encodeQueryComponent(filtered.join(','))}';
+
+    final response = await _getJson(path, withAuth: true);
+    if (response.statusCode == 200 && response.data['success'] == true) {
+      final raw = response.data['requests'];
+      if (raw is List) {
+        return raw
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList();
+      }
+      return [];
+    }
+
+    throw Exception(_messageFor(response.data, 'Failed to load requests.'));
   }
 
   Future<String?> requestPasswordResetOtp({required String email}) async {
