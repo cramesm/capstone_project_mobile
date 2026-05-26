@@ -11,8 +11,11 @@ class RequestDetailsScreen extends StatelessWidget {
   final PendingRequest request;
   const RequestDetailsScreen({super.key, required this.request});
 
+  String _amountLabel(double value) => 'PHP ${value.toStringAsFixed(2)}';
+
   @override
   Widget build(BuildContext context) {
+    final request = this.request;
     final statusUpper = request.status.toUpperCase();
     final needsPayment = statusUpper == 'PENDING FOR PAYMENT';
     final pendingCompletion = statusUpper == 'PENDING TO COMPLETE';
@@ -65,10 +68,20 @@ class RequestDetailsScreen extends StatelessWidget {
             ]),
             SizedBox(height: 15.h),
             _buildSectionCard("Payment Summary", [
-              _buildInfoRow("Document Price:", "PHP 100"),
-              _buildInfoRow("Processing Fee:", "PHP 10"),
+              _buildInfoRow(
+                "Document Price:",
+                _amountLabel(request.documentPrice),
+              ),
+              _buildInfoRow(
+                "Processing Fee:",
+                _amountLabel(request.processingFee),
+              ),
               const Divider(),
-              _buildInfoRow("Total Amount Due:", "PHP 110", isBold: true),
+              _buildInfoRow(
+                "Total Amount Due:",
+                _amountLabel(request.totalAmount),
+                isBold: true,
+              ),
               SizedBox(height: 15.h),
               if (needsPayment)
                 Align(

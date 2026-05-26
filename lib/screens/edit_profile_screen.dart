@@ -16,6 +16,7 @@ class EditProfileScreen extends StatefulWidget {
 
 class _EditProfileScreenState extends State<EditProfileScreen> {
   File? _image;
+  String _profileImageUrl = '';
   final picker = ImagePicker();
 
   late final TextEditingController _firstNameController;
@@ -40,6 +41,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   void initState() {
     super.initState();
     final profile = widget.profile;
+    _profileImageUrl = profile.profileImageUrl;
     _firstNameController = TextEditingController(text: profile.firstName);
     _lastNameController = TextEditingController(text: profile.lastName);
     _studentIdController = TextEditingController(text: profile.studentId);
@@ -118,10 +120,31 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     );
 
     try {
-      final saved = await MongoDataApiService.instance.updateProfile(
+      var saved = await MongoDataApiService.instance.updateProfile(
         profile: updated,
         newPassword: password.isNotEmpty ? password : null,
       );
+      if (_image != null) {
+        final bytes = await _image!.readAsBytes();
+        final fileName = _image!.path.split(Platform.pathSeparator).last;
+        try {
+          saved = await MongoDataApiService.instance.uploadProfilePhoto(
+            bytes: bytes,
+            fileName: fileName,
+          );
+          _profileImageUrl = saved.profileImageUrl;
+        } catch (error) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  error.toString().replaceFirst('Exception: ', ''),
+                ),
+              ),
+            );
+          }
+        }
+      }
       if (!mounted) return;
       Navigator.pop(context, saved);
     } catch (error) {
@@ -230,6 +253,20 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   Widget _buildHeader() {
+    ImageProvider<Object>? avatarImage;
+    if (_image != null) {
+      avatarImage = FileImage(_image!);
+    } else if (_profileImageUrl.isNotEmpty) {
+      final isRemote = _profileImageUrl.startsWith('http');
+      if (isRemote) {
+        avatarImage = NetworkImage(_profileImageUrl);
+      } else {
+        final file = File(_profileImageUrl);
+        if (file.existsSync()) {
+          avatarImage = FileImage(file);
+        }
+      }
+    }
     return Stack(
       alignment: Alignment.center,
       clipBehavior: Clip.none,
@@ -252,8 +289,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             child: CircleAvatar(
               radius: 55.r,
               backgroundColor: headerBlue,
-              backgroundImage: _image != null ? FileImage(_image!) : null,
-              child: _image == null ? Icon(Icons.person, size: 80.r, color: Colors.black) : null,
+              backgroundImage: avatarImage,
+              child: avatarImage == null
+                  ? Icon(Icons.person, size: 80.r, color: Colors.black)
+                  : null,
             ),
           ),
         ),

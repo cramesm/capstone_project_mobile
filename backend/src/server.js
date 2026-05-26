@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs';
+import { v2 as cloudinary } from 'cloudinary';
 import { createHash, randomBytes, randomInt } from 'crypto';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -21,6 +22,8 @@ const {
   MONGODB_URI = '',
   MONGODB_DB_NAME = 'verifitor',
   MONGODB_USERS_COLLECTION = 'users',
+  MONGODB_STUDENTS_COLLECTION = 'students',
+  MONGODB_ALUMNI_COLLECTION = 'alumni',
   ALLOWED_ORIGIN = '*',
   MAILBOXLAYER_ACCESS_KEY = '',
   OTP_TTL_MINUTES = '10',
@@ -35,9 +38,19 @@ const {
   SMTP_USER = '',
   SMTP_PASS = '',
   SMTP_FROM = 'Verifitor <andreisembrano8@gmail.com>',
+  NOTIFICATIONS_API_KEY = '',
+  CLOUDINARY_CLOUD_NAME = '',
+  CLOUDINARY_API_KEY = '',
+  CLOUDINARY_API_SECRET = '',
 } = process.env;
 
 const dbEnabled = DISABLE_DB !== 'true';
+const alumniCollectionName = String(
+  MONGODB_ALUMNI_COLLECTION || MONGODB_USERS_COLLECTION || 'alumni',
+);
+const studentsCollectionName = String(
+  MONGODB_STUDENTS_COLLECTION || 'students',
+);
 
 if (dbEnabled && !MONGODB_URI) {
   throw new Error('Missing MONGODB_URI in backend/.env');
@@ -45,6 +58,19 @@ if (dbEnabled && !MONGODB_URI) {
 
 if (!JWT_SECRET) {
   throw new Error('Missing JWT_SECRET in backend/.env');
+}
+
+const cloudinaryEnabled = Boolean(
+  CLOUDINARY_CLOUD_NAME && CLOUDINARY_API_KEY && CLOUDINARY_API_SECRET,
+);
+
+if (cloudinaryEnabled) {
+  cloudinary.config({
+    cloud_name: CLOUDINARY_CLOUD_NAME,
+    api_key: CLOUDINARY_API_KEY,
+    api_secret: CLOUDINARY_API_SECRET,
+    secure: true,
+  });
 }
 
 const app = express();
@@ -57,27 +83,48 @@ fs.mkdirSync(receiptsDir, { recursive: true });
 
 const allowedReceiptMimeTypes = new Set([
   'image/jpeg',
+  'image/jpg',
   'image/png',
   'image/webp',
+  'image/heic',
+  'image/heif',
+  'image/heic-sequence',
+  'image/heif-sequence',
 ]);
-const receiptUpload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, receiptsDir),
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname || '').toLowerCase();
-      const name = randomBytes(10).toString('hex');
-      cb(null, `${name}${ext || '.jpg'}`);
-    },
-  }),
-  fileFilter: (req, file, cb) => {
-    if (!allowedReceiptMimeTypes.has(file.mimetype)) {
-      req.fileValidationError = 'Only JPG, PNG, or WEBP images are allowed.';
-      return cb(null, false);
+const allowedImageExtensions = new Set([
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.webp',
+  '.heic',
+  '.heif',
+]);
+
+function imageFileFilter(req, file, cb) {
+  const ext = path.extname(file.originalname || '').toLowerCase();
+  if (!allowedReceiptMimeTypes.has(file.mimetype)) {
+    if (file.mimetype === 'application/octet-stream' &&
+        allowedImageExtensions.has(ext)) {
+      return cb(null, true);
     }
-    return cb(null, true);
-  },
+    req.fileValidationError =
+      'Only JPG, PNG, WEBP, or HEIC images are allowed.';
+    return cb(null, false);
+  }
+  return cb(null, true);
+}
+const receiptUpload = multer({
+  storage: multer.memoryStorage(),
+  fileFilter: imageFileFilter,
   limits: {
     fileSize: 8 * 1024 * 1024,
+  },
+});
+const profileUpload = multer({
+  storage: multer.memoryStorage(),
+  fileFilter: imageFileFilter,
+  limits: {
+    fileSize: 5 * 1024 * 1024,
   },
 });
 
@@ -100,12 +147,20 @@ const authLimiter = rateLimit({
 app.use('/auth', authLimiter);
 
 const client = dbEnabled ? new MongoClient(MONGODB_URI) : null;
-let users;
+let alumniUsers;
+let studentUsers;
 let receipts;
 let requests;
+let notifications;
+let transactions;
 const memoryUsers = new Map();
 const memoryReceipts = [];
 const memoryRequests = [];
+const memoryNotifications = [];
+const memoryTransactions = [];
+
+const defaultDocumentPrice = 100;
+const defaultProcessingFee = 10;
 
 const emailRegex = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
 const passwordRegex =
@@ -132,8 +187,57 @@ function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
 }
 
+async function normalizeEmailsInCollection(collection, label) {
+  if (!collection) return;
+  try {
+    const cursor = collection.find({}, {
+      projection: { email: 1, schoolEmail: 1, personalEmail: 1 },
+    });
+    for await (const user of cursor) {
+      const updates = {};
+      if (user?.email) {
+        const nextEmail = normalizeEmail(user.email);
+        if (nextEmail && nextEmail !== user.email) {
+          updates.email = nextEmail;
+        }
+      }
+      if (user?.schoolEmail) {
+        const nextSchoolEmail = normalizeEmail(user.schoolEmail);
+        if (nextSchoolEmail && nextSchoolEmail !== user.schoolEmail) {
+          updates.schoolEmail = nextSchoolEmail;
+        }
+      }
+      if (user?.personalEmail) {
+        const nextPersonalEmail = normalizeEmail(user.personalEmail);
+        if (nextPersonalEmail && nextPersonalEmail !== user.personalEmail) {
+          updates.personalEmail = nextPersonalEmail;
+        }
+      }
+      if (Object.keys(updates).length > 0) {
+        try {
+          await collection.updateOne({ _id: user._id }, { $set: updates });
+        } catch (error) {
+          console.warn(
+            `Failed to normalize emails for ${label} ${user._id}:`,
+            error?.message || error,
+          );
+        }
+      }
+    }
+  } catch (error) {
+    console.warn(
+      `Email normalization skipped for ${label}:`,
+      error?.message || error,
+    );
+  }
+}
+
 function makeUserId() {
   return randomBytes(12).toString('hex');
+}
+
+function makeRequestId() {
+  return `req_${Date.now()}_${randomBytes(6).toString('hex')}`;
 }
 
 function buildUserResponse(user) {
@@ -149,13 +253,14 @@ function buildUserResponse(user) {
 
 function buildProfileResponse(user) {
   if (!user) return null;
-  const role = String(user.role || '').trim().toLowerCase();
+  const role = normalizeRole(user.role);
   const isStudent = role === 'student';
   const schoolEmail = isStudent ? user.schoolEmail || '' : '';
   return {
     id: user._id || user.id,
     firstName: user.firstName,
     lastName: user.lastName,
+    profileImageUrl: user.profileImageUrl || user.profilePic || '',
     email: isStudent && schoolEmail ? schoolEmail : user.email,
     personalEmail: isStudent ? '' : user.personalEmail || user.email || '',
     role: role || 'alumni',
@@ -172,16 +277,71 @@ function normalizeRole(role) {
   return 'alumni';
 }
 
+function getCollectionForRole(role) {
+  const normalized = normalizeRole(role);
+  return normalized === 'student' ? studentUsers : alumniUsers;
+}
+
 async function getUserById(id) {
   if (!id) return null;
   if (dbEnabled) {
     if (!ObjectId.isValid(id)) return null;
-    return users.findOne({ _id: new ObjectId(id) });
+    const objectId = new ObjectId(id);
+    const student = await studentUsers.findOne({ _id: objectId });
+    if (student) return student;
+    return alumniUsers.findOne({ _id: objectId });
   }
 
   for (const user of memoryUsers.values()) {
     const candidate = String(user?._id || user?.id || '');
     if (candidate && candidate === id) return user;
+  }
+  return null;
+}
+
+async function getUserByEmailWithCollection(email, preferredRole) {
+  if (dbEnabled) {
+    const preference = preferredRole ? normalizeRole(preferredRole) : '';
+    const studentQuery = { $or: [{ email }, { schoolEmail: email }] };
+    const alumniQuery = { $or: [{ email }, { personalEmail: email }] };
+
+    if (preference === 'student') {
+      const student = await studentUsers.findOne(studentQuery);
+      if (student) return { user: student, collection: studentUsers };
+    }
+
+    if (preference === 'alumni') {
+      const alumni = await alumniUsers.findOne(alumniQuery);
+      if (alumni) return { user: alumni, collection: alumniUsers };
+    }
+
+    if (preference) {
+      const fallbackCollection =
+        preference === 'student' ? alumniUsers : studentUsers;
+      const fallbackQuery =
+        preference === 'student' ? alumniQuery : studentQuery;
+      const fallbackUser = await fallbackCollection.findOne(fallbackQuery);
+      if (fallbackUser) {
+        return { user: fallbackUser, collection: fallbackCollection };
+      }
+      return null;
+    }
+
+    const student = await studentUsers.findOne(studentQuery);
+    if (student) return { user: student, collection: studentUsers };
+    const alumni = await alumniUsers.findOne(alumniQuery);
+    if (alumni) return { user: alumni, collection: alumniUsers };
+    return null;
+  }
+
+  const user = memoryUsers.get(email) || null;
+  if (user) return { user, collection: null };
+  for (const candidate of memoryUsers.values()) {
+    const schoolEmail = normalizeEmail(candidate?.schoolEmail);
+    const personalEmail = normalizeEmail(candidate?.personalEmail);
+    if (schoolEmail === email || personalEmail === email) {
+      return { user: candidate, collection: null };
+    }
   }
   return null;
 }
@@ -208,11 +368,18 @@ function toPositiveNumber(value, fallback) {
   return parsed;
 }
 
+function toNonNegativeNumber(value, fallback) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+  return parsed;
+}
+
 const jwtIssuer = String(JWT_ISSUER || '').trim();
 const accessTokenTtlSeconds =
   toPositiveNumber(JWT_ACCESS_TTL_MINUTES, 15) * 60;
 const refreshTokenTtlMs =
   toPositiveNumber(JWT_REFRESH_TTL_DAYS, 30) * 24 * 60 * 60 * 1000;
+const notificationsApiKey = String(NOTIFICATIONS_API_KEY || '').trim();
 
 function signAccessToken(user) {
   const payload = {
@@ -254,7 +421,9 @@ function isRefreshTokenExpired(record) {
 
 async function storeRefreshToken(email, record) {
   if (dbEnabled) {
-    await users.updateOne(
+    const found = await getUserByEmailWithCollection(email);
+    if (!found?.collection) return;
+    await found.collection.updateOne(
       { email },
       {
         $push: {
@@ -281,7 +450,9 @@ async function storeRefreshToken(email, record) {
 
 async function revokeRefreshToken(email, tokenHash) {
   if (dbEnabled) {
-    await users.updateOne(
+    const found = await getUserByEmailWithCollection(email);
+    if (!found?.collection) return;
+    await found.collection.updateOne(
       { email },
       { $pull: { refreshTokens: { tokenHash } } },
     );
@@ -341,16 +512,33 @@ function requireAuth(req, res, next) {
   }
 }
 
+function requireNotificationSender(req, res, next) {
+  const headerKey = String(req.headers['x-notification-key'] || '').trim();
+  if (notificationsApiKey) {
+    if (headerKey && headerKey === notificationsApiKey) {
+      return next();
+    }
+    return requireAuth(req, res, next);
+  }
+
+  if (headerKey) {
+    return next();
+  }
+  return requireAuth(req, res, next);
+}
+
 async function getUserByEmail(email) {
   if (dbEnabled) {
-    return users.findOne({ email });
+    const record = await getUserByEmailWithCollection(email);
+    return record?.user || null;
   }
   return memoryUsers.get(email) || null;
 }
 
 async function createUserDocument(user) {
   if (dbEnabled) {
-    return users.insertOne(user);
+    const collection = getCollectionForRole(user.role);
+    return collection.insertOne(user);
   }
 
   const id = user._id || user.id || makeUserId();
@@ -369,15 +557,295 @@ async function createReceiptRecord(receipt) {
   return id;
 }
 
+function buildReceiptRecord({
+  user,
+  paymentType,
+  docName,
+  purpose,
+  amount,
+  status,
+  imageUrl,
+  publicId,
+  originalName,
+  mimeType,
+  size,
+}) {
+  return {
+    userId: user?._id || user?.id,
+    email: user?.email || '',
+    firstName: user?.firstName || '',
+    lastName: user?.lastName || '',
+    paymentType: paymentType || '',
+    docName: docName || '',
+    purpose: purpose || '',
+    amount,
+    status,
+    imageUrl,
+    publicId,
+    originalName,
+    mimeType,
+    size,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function buildReceiptResponse(record) {
+  if (!record) return null;
+  const id = record._id || record.id;
+  return {
+    id: id ? String(id) : '',
+    imageUrl: record.imageUrl || '',
+    publicId: record.publicId || '',
+    amount: record.amount ?? null,
+    status: record.status || '',
+    paymentType: record.paymentType || '',
+    docName: record.docName || '',
+    purpose: record.purpose || '',
+    createdAt: record.createdAt || new Date().toISOString(),
+  };
+}
+
+async function uploadReceiptToCloudinary(file) {
+  if (!cloudinaryEnabled) {
+    throw new Error('Cloudinary is not configured.');
+  }
+  if (!file?.buffer) {
+    throw new Error('Receipt image is required.');
+  }
+
+  return new Promise((resolve, reject) => {
+    const upload = cloudinary.uploader.upload_stream(
+      {
+        folder: 'capstone/receipts',
+        resource_type: 'image',
+      },
+      (error, result) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(result);
+      },
+    );
+
+    upload.end(file.buffer);
+  });
+}
+
+async function uploadProfilePhotoToCloudinary(file) {
+  if (!cloudinaryEnabled) {
+    throw new Error('Cloudinary is not configured.');
+  }
+  if (!file?.buffer) {
+    throw new Error('Profile photo is required.');
+  }
+
+  return new Promise((resolve, reject) => {
+    const upload = cloudinary.uploader.upload_stream(
+      {
+        folder: 'capstone/profiles',
+        resource_type: 'image',
+      },
+      (error, result) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(result);
+      },
+    );
+
+    upload.end(file.buffer);
+  });
+}
+
+async function findLatestReceiptForUser(user, { docName, purpose }) {
+  const userId = user?._id || user?.id;
+  const email = normalizeEmail(user?.email);
+  if (!userId && !email) return null;
+
+  if (dbEnabled) {
+    const query = {};
+    const clauses = [];
+    if (userId && ObjectId.isValid(String(userId))) {
+      clauses.push({ userId: new ObjectId(String(userId)) });
+    }
+    if (emailRegex.test(email)) {
+      clauses.push({ email });
+    }
+    if (clauses.length === 0) return null;
+    query.$or = clauses;
+    if (docName) query.docName = docName;
+    if (purpose) query.purpose = purpose;
+    const results = await receipts
+      .find(query)
+      .sort({ createdAt: -1 })
+      .limit(1)
+      .toArray();
+    return results[0] || null;
+  }
+
+  const normalizedId = userId ? String(userId) : '';
+  const items = memoryReceipts.filter((record) => {
+    if (normalizedId && String(record.userId) === normalizedId) {
+      return true;
+    }
+    if (email && String(record.email || '').toLowerCase() === email) {
+      return true;
+    }
+    return false;
+  });
+
+  const filtered = items.filter((record) => {
+    if (docName && record.docName !== docName) return false;
+    if (purpose && record.purpose !== purpose) return false;
+    return true;
+  });
+
+  return filtered.sort(
+    (a, b) =>
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  )[0] || null;
+}
+
 async function createRequestRecord(request) {
   if (dbEnabled) {
+    if (!request.requestId) {
+      request.requestId = makeRequestId();
+    }
     const result = await requests.insertOne(request);
     return result.insertedId;
   }
 
+  if (!request.requestId) {
+    request.requestId = makeRequestId();
+  }
   const id = makeUserId();
   memoryRequests.push({ ...request, _id: id });
   return id;
+}
+
+async function createNotificationRecord(notification) {
+  if (dbEnabled) {
+    const result = await notifications.insertOne(notification);
+    return result.insertedId;
+  }
+
+  const id = makeUserId();
+  memoryNotifications.push({ ...notification, _id: id });
+  return id;
+}
+
+async function listNotificationsForUser(user, limit) {
+  const userId = user?._id || user?.id;
+  const email = normalizeEmail(user?.email);
+  if (!userId && !email) return [];
+
+  const safeLimit = Math.min(toPositiveNumber(limit, 50), 200);
+
+  if (dbEnabled) {
+    const clauses = [];
+    if (userId && ObjectId.isValid(String(userId))) {
+      clauses.push({ userId: new ObjectId(String(userId)) });
+    }
+    if (emailRegex.test(email)) {
+      clauses.push({ email });
+    }
+    if (clauses.length === 0) return [];
+    return notifications
+      .find({ $or: clauses })
+      .sort({ createdAt: -1 })
+      .limit(safeLimit)
+      .toArray();
+  }
+
+  const normalizedId = userId ? String(userId) : '';
+  return memoryNotifications
+    .filter((record) => {
+      if (normalizedId && String(record.userId) === normalizedId) {
+        return true;
+      }
+      if (email && String(record.email || '').toLowerCase() === email) {
+        return true;
+      }
+      return false;
+    })
+    .sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    )
+    .slice(0, safeLimit);
+}
+
+function buildNotificationResponse(record) {
+  if (!record) return null;
+  const id = record._id || record.id;
+  return {
+    id: id ? String(id) : '',
+    title: record.title || '',
+    message: record.message || '',
+    isRead: Boolean(record.isRead),
+    createdAt: record.createdAt || new Date().toISOString(),
+    email: record.email || '',
+    userId: record.userId ? String(record.userId) : '',
+  };
+}
+
+async function listTransactionsForUser(user, limit) {
+  const userId = user?._id || user?.id;
+  const email = normalizeEmail(user?.email);
+  if (!userId && !email) return [];
+
+  const safeLimit = Math.min(toPositiveNumber(limit, 50), 200);
+
+  if (dbEnabled) {
+    const clauses = [];
+    if (userId && ObjectId.isValid(String(userId))) {
+      clauses.push({ userId: new ObjectId(String(userId)) });
+    }
+    if (emailRegex.test(email)) {
+      clauses.push({ email });
+    }
+    if (clauses.length === 0) return [];
+    return transactions
+      .find({ $or: clauses })
+      .sort({ createdAt: -1 })
+      .limit(safeLimit)
+      .toArray();
+  }
+
+  const normalizedId = userId ? String(userId) : '';
+  return memoryTransactions
+    .filter((record) => {
+      if (normalizedId && String(record.userId) === normalizedId) {
+        return true;
+      }
+      if (email && String(record.email || '').toLowerCase() === email) {
+        return true;
+      }
+      return false;
+    })
+    .sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    )
+    .slice(0, safeLimit);
+}
+
+function buildTransactionResponse(record) {
+  if (!record) return null;
+  const id = record._id || record.id;
+  return {
+    id: id ? String(id) : '',
+    docName: record.docName || record.documentName || record.title || '',
+    purpose: record.purpose || '',
+    status: record.status || record.state || 'completed',
+    createdAt: record.createdAt || record.date || new Date().toISOString(),
+    paymentType: record.paymentType || '',
+    totalAmount: record.totalAmount ?? record.amount ?? null,
+    email: record.email || '',
+    userId: record.userId ? String(record.userId) : '',
+  };
 }
 
 async function updateRequestStatusForPayment({
@@ -389,7 +857,7 @@ async function updateRequestStatusForPayment({
   if (!userId || !docName || !purpose) return null;
 
   const updates = {
-    status: 'pending_completion',
+    status: 'pending',
     paymentType,
     updatedAt: new Date().toISOString(),
   };
@@ -425,13 +893,36 @@ async function updateRequestStatusForPayment({
 function buildRequestResponse(record) {
   if (!record) return null;
   const id = record._id || record.id;
+  const documentPrice = toNonNegativeNumber(
+    record.documentPrice,
+    defaultDocumentPrice,
+  );
+  const processingFee = toNonNegativeNumber(
+    record.processingFee,
+    defaultProcessingFee,
+  );
+  const totalAmount = toNonNegativeNumber(
+    record.totalAmount,
+    documentPrice + processingFee,
+  );
   return {
     id: id ? String(id) : '',
+    requestId: record.requestId ? String(record.requestId) : '',
     docName: record.docName || '',
     purpose: record.purpose || '',
     status: record.status || 'pending',
     createdAt: record.createdAt || new Date().toISOString(),
     updatedAt: record.updatedAt || record.createdAt || new Date().toISOString(),
+    email: record.email || '',
+    role: record.role || '',
+    schoolEmail: record.schoolEmail || '',
+    studentId: record.studentId || '',
+    yearGraduated: record.yearGraduated || '',
+    yearLevel: record.yearLevel || '',
+    program: record.program || '',
+    documentPrice,
+    processingFee,
+    totalAmount,
   };
 }
 
@@ -472,7 +963,8 @@ async function listRequestsForUser(user, statuses) {
 async function upsertUserDocument(user) {
   if (dbEnabled) {
     const { createdAt, ...userSet } = user;
-    await users.updateOne(
+    const collection = getCollectionForRole(user.role);
+    await collection.updateOne(
       { email: user.email },
       {
         $set: userSet,
@@ -497,9 +989,14 @@ async function upsertUserDocument(user) {
 
 async function updateUserPassword(email, passwordHash) {
   if (dbEnabled) {
-    await users.updateOne(
+    const found = await getUserByEmailWithCollection(email);
+    if (!found?.collection) return;
+    await found.collection.updateOne(
       { email },
-      { $set: { passwordHash, updatedAt: new Date().toISOString() } },
+      {
+        $set: { passwordHash, updatedAt: new Date().toISOString() },
+        $unset: { password: '' },
+      },
     );
     return;
   }
@@ -509,14 +1006,53 @@ async function updateUserPassword(email, passwordHash) {
   memoryUsers.set(email, {
     ...existing,
     passwordHash,
+    password: undefined,
     updatedAt: new Date().toISOString(),
   });
+}
+
+async function ensurePasswordHash(user) {
+  if (!user) return '';
+  if (user.passwordHash) return user.passwordHash;
+  if (!user.password) return '';
+
+  const legacyHash = String(user.password).trim();
+  if (!legacyHash) return '';
+
+  if (dbEnabled) {
+    const found = await getUserByEmailWithCollection(
+      normalizeEmail(user.email),
+    );
+    if (found?.collection && user._id) {
+      await found.collection.updateOne(
+        { _id: user._id },
+        {
+          $set: { passwordHash: legacyHash, updatedAt: new Date().toISOString() },
+          $unset: { password: '' },
+        },
+      );
+    }
+  } else {
+    const email = normalizeEmail(user.email);
+    const existing = memoryUsers.get(email);
+    if (existing) {
+      memoryUsers.set(email, {
+        ...existing,
+        passwordHash: legacyHash,
+        password: undefined,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+  }
+
+  return legacyHash;
 }
 
 async function updateUserProfile(user, updates) {
   if (!user) return;
   if (dbEnabled) {
-    await users.updateOne(
+    const collection = getCollectionForRole(user.role);
+    await collection.updateOne(
       { _id: user._id },
       { $set: { ...updates, updatedAt: new Date().toISOString() } },
     );
@@ -759,6 +1295,13 @@ app.post(
   receiptUpload.single('receipt'),
   async (req, res, next) => {
     try {
+      if (!cloudinaryEnabled) {
+        return res.status(500).json({
+          success: false,
+          message: 'Cloudinary is not configured.',
+        });
+      }
+
       if (req.fileValidationError) {
         return res.status(400).json({
           success: false,
@@ -790,37 +1333,65 @@ app.post(
           .json({ success: false, message: 'User not found.' });
       }
 
-      const receipt = {
-        userId: user._id || user.id,
-        email: user.email,
+      const docName = String(req.body?.docName || '').trim();
+      const purpose = String(req.body?.purpose || '').trim();
+      const amount = toNonNegativeNumber(req.body?.amount, 0);
+      const status = String(req.body?.status || 'pending_completion').trim();
+
+      const uploadResult = await uploadReceiptToCloudinary(req.file);
+      const receipt = buildReceiptRecord({
+        user,
         paymentType,
-        docName: String(req.body?.docName || '').trim(),
-        purpose: String(req.body?.purpose || '').trim(),
-        fileName: req.file.filename,
+        docName,
+        purpose,
+        amount,
+        status: status || 'pending_completion',
+        imageUrl: uploadResult?.secure_url || uploadResult?.url || '',
+        publicId: uploadResult?.public_id || '',
         originalName: req.file.originalname,
         mimeType: req.file.mimetype,
         size: req.file.size,
-        path: `/uploads/receipts/${req.file.filename}`,
-        createdAt: new Date().toISOString(),
-      };
+      });
 
       const receiptId = await createReceiptRecord(receipt);
       await updateRequestStatusForPayment({
         userId: receipt.userId,
-        docName: receipt.docName,
-        purpose: receipt.purpose,
+        docName: docName,
+        purpose: purpose,
         paymentType: receipt.paymentType,
       });
       return res.status(201).json({
         success: true,
         receiptId,
-        fileUrl: receipt.path,
+        imageUrl: receipt.imageUrl,
       });
     } catch (error) {
       return next(error);
     }
   },
 );
+
+app.get('/receipts', requireAuth, async (req, res, next) => {
+  try {
+    const user = await getUserFromAuth(req.auth);
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: 'User not found.' });
+    }
+
+    const docName = String(req.query?.docName || '').trim();
+    const purpose = String(req.query?.purpose || '').trim();
+    const receipt = await findLatestReceiptForUser(user, { docName, purpose });
+
+    return res.json({
+      success: true,
+      receipt: buildReceiptResponse(receipt),
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
 
 app.post('/requests', requireAuth, async (req, res, next) => {
   try {
@@ -848,7 +1419,21 @@ app.post('/requests', requireAuth, async (req, res, next) => {
         .json({ success: false, message: 'User not found.' });
     }
 
+    const documentPrice = toNonNegativeNumber(
+      req.body?.documentPrice,
+      defaultDocumentPrice,
+    );
+    const processingFee = toNonNegativeNumber(
+      req.body?.processingFee,
+      defaultProcessingFee,
+    );
+    const totalAmount = toNonNegativeNumber(
+      req.body?.totalAmount,
+      documentPrice + processingFee,
+    );
+
     const requestRecord = {
+      requestId: makeRequestId(),
       userId: user._id || user.id,
       email: user.email,
       role: user.role || '',
@@ -862,6 +1447,9 @@ app.post('/requests', requireAuth, async (req, res, next) => {
       program: user.program || '',
       docName,
       purpose,
+      documentPrice,
+      processingFee,
+      totalAmount,
       status: 'pending_payment',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -897,6 +1485,167 @@ app.get('/requests', requireAuth, async (req, res, next) => {
     return next(error);
   }
 });
+
+app.get('/notifications', requireAuth, async (req, res, next) => {
+  try {
+    const user = await getUserFromAuth(req.auth);
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: 'User not found.' });
+    }
+
+    const records = await listNotificationsForUser(user, req.query?.limit);
+    return res.json({
+      success: true,
+      notifications: records.map(buildNotificationResponse).filter(Boolean),
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.post('/notifications', requireNotificationSender, async (req, res, next) => {
+  try {
+    const title = String(req.body?.title || '').trim();
+    const message = String(req.body?.message || '').trim();
+    const emailInput = normalizeEmail(req.body?.email);
+    const userIdInput = String(req.body?.userId || '').trim();
+
+    if (!title || !message) {
+      return res.status(400).json({
+        success: false,
+        message: 'Notification title and message are required.',
+      });
+    }
+
+    let user = null;
+    if (req.auth) {
+      user = await getUserFromAuth(req.auth);
+    }
+
+    if (emailInput && emailRegex.test(emailInput)) {
+      user = (await getUserByEmail(emailInput)) || user;
+    }
+
+    const resolvedEmail =
+      (user?.email && normalizeEmail(user.email)) ||
+      (emailRegex.test(emailInput) ? emailInput : '');
+
+    let resolvedUserId = null;
+    const rawUserId = user?._id || user?.id || userIdInput || null;
+    if (rawUserId && ObjectId.isValid(String(rawUserId))) {
+      resolvedUserId = dbEnabled
+        ? new ObjectId(String(rawUserId))
+        : String(rawUserId);
+    }
+
+    if (!resolvedUserId && !resolvedEmail) {
+      return res.status(400).json({
+        success: false,
+        message: 'Notification must target a valid user.',
+      });
+    }
+
+    const notification = {
+      userId: resolvedUserId || undefined,
+      email: resolvedEmail || undefined,
+      title,
+      message,
+      isRead: false,
+      createdAt: new Date().toISOString(),
+    };
+
+    const notificationId = await createNotificationRecord(notification);
+    return res.status(201).json({
+      success: true,
+      notificationId: String(notificationId),
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.get('/transactions', requireAuth, async (req, res, next) => {
+  try {
+    const user = await getUserFromAuth(req.auth);
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: 'User not found.' });
+    }
+
+    const records = await listTransactionsForUser(user, req.query?.limit);
+    return res.json({
+      success: true,
+      transactions: records.map(buildTransactionResponse).filter(Boolean),
+    });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+app.post(
+  '/profile/photo',
+  requireAuth,
+  profileUpload.single('photo'),
+  async (req, res, next) => {
+    try {
+      if (!cloudinaryEnabled) {
+        return res.status(500).json({
+          success: false,
+          message: 'Cloudinary is not configured.',
+        });
+      }
+
+      if (req.fileValidationError) {
+        return res.status(400).json({
+          success: false,
+          message: req.fileValidationError,
+        });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          message: 'Profile photo is required.',
+        });
+      }
+
+      const user = await getUserFromAuth(req.auth);
+      if (!user) {
+        return res
+          .status(404)
+          .json({ success: false, message: 'User not found.' });
+      }
+
+      const uploadResult = await uploadProfilePhotoToCloudinary(req.file);
+      const profileImageUrl =
+        uploadResult?.secure_url || uploadResult?.url || '';
+      const profileImagePublicId = uploadResult?.public_id || '';
+
+      await updateUserProfile(user, {
+        profileImageUrl,
+        profileImagePublicId,
+        profilePic: profileImageUrl,
+      });
+
+      const refreshed = (await getUserByEmail(user.email)) || {
+        ...user,
+        profileImageUrl,
+        profilePic: profileImageUrl,
+      };
+
+      return res.status(201).json({
+        success: true,
+        imageUrl: profileImageUrl,
+        profile: buildProfileResponse(refreshed),
+      });
+    } catch (error) {
+      return next(error);
+    }
+  },
+);
 
 app.put('/profile', requireAuth, async (req, res, next) => {
   try {
@@ -1057,11 +1806,11 @@ app.post('/auth/register', async (req, res, next) => {
     const result = await createUserDocument({
       firstName: parsed.firstName,
       lastName: parsed.lastName,
-      email: isStudent ? schoolEmail : parsed.email,
-      personalEmail: isStudent ? '' : parsed.email,
+      email: isStudent ? schoolEmail : normalizeEmail(parsed.email),
+      personalEmail: isStudent ? '' : normalizeEmail(parsed.email),
       passwordHash,
       role,
-      schoolEmail: isStudent ? schoolEmail : '',
+      schoolEmail: isStudent ? normalizeEmail(schoolEmail) : '',
       studentId: isStudent ? parsed.studentId : '',
       yearLevel: parsed.yearLevel,
       program: parsed.program,
@@ -1186,7 +1935,7 @@ app.post('/auth/register/verify-otp', async (req, res, next) => {
         .json({ success: false, message: 'Missing registration payload.' });
     }
 
-    const existing = await users.findOne({ email: payload.email });
+    const existing = await getUserByEmail(payload.email);
     if (existing) {
       return res
         .status(409)
@@ -1197,11 +1946,11 @@ app.post('/auth/register/verify-otp', async (req, res, next) => {
     const result = await createUserDocument({
       firstName: payload.firstName,
       lastName: payload.lastName,
-      email: payload.email,
-      personalEmail: payload.personalEmail || '',
+      email: normalizeEmail(payload.email),
+      personalEmail: normalizeEmail(payload.personalEmail || ''),
       passwordHash,
       role: payload.role || 'alumni',
-      schoolEmail: payload.schoolEmail || '',
+      schoolEmail: normalizeEmail(payload.schoolEmail || ''),
       studentId: payload.studentId || '',
       yearLevel: payload.yearLevel,
       program: payload.program,
@@ -1222,9 +1971,8 @@ app.post('/auth/login', async (req, res, next) => {
   try {
     const email = normalizeEmail(req.body?.email);
     const password = String(req.body?.password || '').trim();
-    const requestedRole = String(req.body?.role || '').trim().toLowerCase();
 
-    if (!emailRegex.test(email) || password.length < 8) {
+    if (!emailRegex.test(email) || !password) {
       return res
         .status(400)
         .json({ success: false, message: 'Invalid email or password format.' });
@@ -1237,17 +1985,14 @@ app.post('/auth/login', async (req, res, next) => {
         .json({ success: false, message: 'Invalid email or password.' });
     }
 
-    if (requestedRole) {
-      const actualRole = String(user.role || '').trim().toLowerCase();
-      if (!actualRole || actualRole !== requestedRole) {
-        return res.status(403).json({
-          success: false,
-          message: 'Account role does not match the selected login role.',
-        });
-      }
+    const passwordHash = await ensurePasswordHash(user);
+    if (!passwordHash) {
+      return res
+        .status(401)
+        .json({ success: false, message: 'Invalid email or password.' });
     }
 
-    const isMatch = await bcrypt.compare(password, user.passwordHash || '');
+    const isMatch = await bcrypt.compare(password, passwordHash);
     if (!isMatch) {
       return res
         .status(401)
@@ -1478,22 +2223,34 @@ async function start() {
     try {
       await client.connect();
       const db = client.db(MONGODB_DB_NAME);
-      users = db.collection(MONGODB_USERS_COLLECTION);
+      alumniUsers = db.collection(alumniCollectionName);
+      studentUsers = db.collection(studentsCollectionName);
       receipts = db.collection('receipts');
       requests = db.collection('requests');
+      notifications = db.collection('notifications');
+      transactions = db.collection('transactions');
       try {
-        // Drop the old non-sparse username index if it exists
-        try {
-          await users.dropIndex('username_1');
-        } catch (err) {
-          // Index doesn't exist, that's fine
+        for (const collection of [alumniUsers, studentUsers]) {
+          try {
+            await collection.dropIndex('username_1');
+          } catch (err) {
+            // Index doesn't exist, that's fine
+          }
+          await collection.createIndex({ email: 1 }, { unique: true });
+          await collection.createIndex(
+            { username: 1 },
+            { unique: true, sparse: true },
+          );
         }
-        await users.createIndex({ email: 1 }, { unique: true });
-        // Create sparse unique index on username (allows multiple null values)
-        await users.createIndex({ username: 1 }, { unique: true, sparse: true });
         await receipts.createIndex({ userId: 1, createdAt: -1 });
         await requests.createIndex({ userId: 1, createdAt: -1 });
         await requests.createIndex({ status: 1, createdAt: -1 });
+        await notifications.createIndex({ userId: 1, createdAt: -1 });
+        await notifications.createIndex({ email: 1, createdAt: -1 });
+        await transactions.createIndex({ userId: 1, createdAt: -1 });
+        await transactions.createIndex({ email: 1, createdAt: -1 });
+        await normalizeEmailsInCollection(studentUsers, 'students');
+        await normalizeEmailsInCollection(alumniUsers, 'alumni');
       } catch (err) {
         console.warn('Could not create indexes (permission denied):', err.message);
       }

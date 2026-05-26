@@ -167,11 +167,9 @@ class _LogInScreenState extends State<LogInScreen> {
                           fontSize: 14.sp,
                           hintTextSize: 14.sp,
                           fontColor: FB_DARK_PRIMARY,
-                          validator: (value) => value == null || value.isEmpty
+                            validator: (value) => value == null || value.isEmpty
                               ? 'Enter password'
-                              : value.trim().length < 8
-                                ? 'Password must be at least 8 characters'
-                                : null,
+                              : null,
                           suffixIcon: IconButton(
                             padding: EdgeInsets.zero,
                             icon: Icon(

@@ -273,7 +273,7 @@ class MongoDataApiService {
   }) async {
     _clearSession();
     final body = {
-      'email': email.trim(),
+      'email': email.trim().toLowerCase(),
       'password': password.trim(),
     };
     if (role != null && role.trim().isNotEmpty) {
@@ -337,6 +337,8 @@ class MongoDataApiService {
     required String paymentType,
     required String docName,
     required String purpose,
+    double? amount,
+    String? status,
   }) async {
     if (_accessToken == null) {
       throw Exception('Not authenticated.');
@@ -347,6 +349,12 @@ class MongoDataApiService {
     request.fields['paymentType'] = paymentType;
     request.fields['docName'] = docName;
     request.fields['purpose'] = purpose;
+    if (amount != null) {
+      request.fields['amount'] = amount.toStringAsFixed(2);
+    }
+    if (status != null && status.trim().isNotEmpty) {
+      request.fields['status'] = status.trim();
+    }
 
     final safeName = fileName.trim().isEmpty ? 'receipt.jpg' : fileName.trim();
     request.files.add(
@@ -366,6 +374,45 @@ class MongoDataApiService {
     }
 
     throw Exception(_messageFor(decoded.data, 'Failed to upload receipt.'));
+  }
+
+  Future<ProfileData> uploadProfilePhoto({
+    required Uint8List bytes,
+    required String fileName,
+  }) async {
+    if (_accessToken == null) {
+      throw Exception('Not authenticated.');
+    }
+
+    final request = http.MultipartRequest('POST', _uri('/profile/photo'));
+    request.headers.addAll(authHeaders());
+
+    final safeName = fileName.trim().isEmpty ? 'profile.jpg' : fileName.trim();
+    request.files.add(
+      http.MultipartFile.fromBytes(
+        'photo',
+        bytes,
+        filename: safeName,
+      ),
+    );
+
+    final streamed = await request.send().timeout(_timeout);
+    final response = await http.Response.fromStream(streamed);
+    final decoded = _decodeResponse(response);
+
+    if (response.statusCode == 201 && decoded.data['success'] == true) {
+      final user = decoded.data['profile'];
+      if (user is Map<String, dynamic>) {
+        final email = user['email'];
+        if (email is String && email.trim().isNotEmpty) {
+          _currentEmail = email.trim();
+        }
+        return ProfileData.fromJson(user);
+      }
+      throw Exception('Invalid profile response.');
+    }
+
+    throw Exception(_messageFor(decoded.data, 'Failed to upload photo.'));
   }
 
   Future<Map<String, dynamic>> createDocumentRequest({
@@ -421,6 +468,80 @@ class MongoDataApiService {
     }
 
     throw Exception(_messageFor(response.data, 'Failed to load requests.'));
+  }
+
+  Future<Map<String, dynamic>?> fetchReceiptForRequest({
+    required String docName,
+    required String purpose,
+  }) async {
+    if (_accessToken == null) {
+      throw Exception('Not authenticated.');
+    }
+
+    final params = <String, String>{
+      'docName': docName.trim(),
+      'purpose': purpose.trim(),
+    };
+    final uri = _uri('/receipts').replace(queryParameters: params);
+    final response = await http.get(uri, headers: authHeaders()).timeout(_timeout);
+    final decoded = _decodeResponse(response);
+    if (response.statusCode == 200 && decoded.data['success'] == true) {
+      final receipt = decoded.data['receipt'];
+      if (receipt is Map) {
+        return Map<String, dynamic>.from(receipt);
+      }
+      return null;
+    }
+
+    throw Exception(_messageFor(decoded.data, 'Failed to load receipt.'));
+  }
+
+  Future<List<Map<String, dynamic>>> fetchNotifications({int limit = 50}) async {
+    if (_accessToken == null) {
+      throw Exception('Not authenticated.');
+    }
+
+    final safeLimit = limit <= 0 ? 50 : limit;
+    final response = await _getJson(
+      '/notifications?limit=$safeLimit',
+      withAuth: true,
+    );
+    if (response.statusCode == 200 && response.data['success'] == true) {
+      final raw = response.data['notifications'];
+      if (raw is List) {
+        return raw
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList();
+      }
+      return [];
+    }
+
+    throw Exception(_messageFor(response.data, 'Failed to load notifications.'));
+  }
+
+  Future<List<Map<String, dynamic>>> fetchTransactions({int limit = 50}) async {
+    if (_accessToken == null) {
+      throw Exception('Not authenticated.');
+    }
+
+    final safeLimit = limit <= 0 ? 50 : limit;
+    final response = await _getJson(
+      '/transactions?limit=$safeLimit',
+      withAuth: true,
+    );
+    if (response.statusCode == 200 && response.data['success'] == true) {
+      final raw = response.data['transactions'];
+      if (raw is List) {
+        return raw
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList();
+      }
+      return [];
+    }
+
+    throw Exception(_messageFor(response.data, 'Failed to load transactions.'));
   }
 
   Future<String?> requestPasswordResetOtp({required String email}) async {

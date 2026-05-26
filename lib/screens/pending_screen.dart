@@ -10,13 +10,21 @@ class PendingRequest {
  final String purpose;
   final DateTime dateCreated;
   final String status; // e.g., "PENDING", "APPROVED", "RELEASED"
+  final double documentPrice;
+  final double processingFee;
+  final double totalAmount;
 
   PendingRequest({
     required this.docName,
     required this.purpose,
     required this.dateCreated,
     required this.status,
-  });
+    double documentPrice = 0,
+    double processingFee = 0,
+    double? totalAmount,
+  })  : documentPrice = documentPrice,
+        processingFee = processingFee,
+        totalAmount = totalAmount ?? (documentPrice + processingFee);
 }
 
 

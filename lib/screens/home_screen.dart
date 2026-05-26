@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:capstone_project/screens/data_consent_screen.dart';
 import 'package:capstone_project/screens/pending_screen.dart';
 import 'package:capstone_project/screens/profile_screen.dart';
@@ -5,6 +7,7 @@ import 'package:capstone_project/screens/history_screen.dart';
 import 'package:capstone_project/screens/notification_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:intl/intl.dart';
 import '../constants.dart';
 import '../models/notification_item.dart';
 import '../services/mongo_data_api_service.dart';
@@ -30,32 +33,23 @@ class _HomeScreenState extends State<HomeScreen> {
   List<PendingRequest> _pendingRequests = [];
   List<HistoryItem> _historyItems = [];
   bool _isLoadingRequests = false;
+  bool _isLoadingNotifications = false;
+  bool _hasLoadedNotifications = false;
+  final Set<String> _notificationIds = {};
+  Timer? _notificationTimer;
 
   @override
   void initState() {
     super.initState();
     _selectedIndex = widget.initialIndex;
     _pageController = PageController(initialPage: _selectedIndex);
-    _notifications = [
-      NotificationItem(
-        title: 'Document ready',
-        message: 'Your requested document is ready for pickup.',
-        timestamp: 'Just now',
-      ),
-      NotificationItem(
-        title: 'Request received',
-        message: 'We have received your request and are processing it.',
-        timestamp: '2h ago',
-        isRead: true,
-      ),
-      NotificationItem(
-        title: 'Profile updated',
-        message: 'Your profile details were updated successfully.',
-        timestamp: 'Yesterday',
-      ),
-    ];
-
+    _notifications = [];
     _loadRequests();
+    _loadNotifications();
+    _notificationTimer = Timer.periodic(
+      const Duration(seconds: 20),
+      (_) => _loadNotifications(showPopups: true),
+    );
   }
 
   bool _isCompletedStatus(String status) {
@@ -92,6 +86,96 @@ class _HomeScreenState extends State<HomeScreen> {
     return DateTime.now();
   }
 
+  double _parseAmount(dynamic value) {
+    if (value is num) return value.toDouble();
+    if (value is String) {
+      final parsed = double.tryParse(value);
+      if (parsed != null) return parsed;
+    }
+    return 0;
+  }
+
+  DateTime _parseNotificationDate(dynamic value) {
+    if (value is String) {
+      final parsed = DateTime.tryParse(value);
+      if (parsed != null) return parsed;
+    } else if (value is int) {
+      return DateTime.fromMillisecondsSinceEpoch(value);
+    }
+    return DateTime.now();
+  }
+
+  String _formatNotificationTimestamp(DateTime value) {
+    return DateFormat('MMM d, y h:mm a').format(value);
+  }
+
+  Future<void> _loadNotifications({bool showPopups = false}) async {
+    if (_isLoadingNotifications) return;
+    setState(() {
+      _isLoadingNotifications = true;
+    });
+
+    try {
+      final items = await MongoDataApiService.instance.fetchNotifications();
+      final existingRead = {
+        for (final item in _notifications) item.id: item.isRead,
+      };
+      final nextNotifications = <NotificationItem>[];
+
+      for (final item in items) {
+        final id = item['id']?.toString().trim() ?? '';
+        if (id.isEmpty) continue;
+        final title = item['title']?.toString().trim() ?? '';
+        final message = item['message']?.toString().trim() ?? '';
+        if (title.isEmpty && message.isEmpty) continue;
+        final createdAt = _parseNotificationDate(item['createdAt']);
+        final isRead = item['isRead'] == true || existingRead[id] == true;
+        nextNotifications.add(
+          NotificationItem(
+            id: id,
+            title: title,
+            message: message,
+            createdAt: createdAt,
+            timestamp: _formatNotificationTimestamp(createdAt),
+            isRead: isRead,
+          ),
+        );
+      }
+
+      final nextIds = nextNotifications.map((item) => item.id).toSet();
+      final newItems = _hasLoadedNotifications
+          ? nextNotifications
+              .where((item) => !_notificationIds.contains(item.id))
+              .toList()
+          : <NotificationItem>[];
+
+      if (showPopups && newItems.isNotEmpty && mounted) {
+        final headline = newItems.length == 1
+            ? 'New notification: ${newItems.first.title}'
+            : 'You have ${newItems.length} new notifications';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(headline)),
+        );
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _notifications = nextNotifications;
+        _notificationIds
+          ..clear()
+          ..addAll(nextIds);
+        _isLoadingNotifications = false;
+        _hasLoadedNotifications = true;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isLoadingNotifications = false;
+        _hasLoadedNotifications = true;
+      });
+    }
+  }
+
   void _mergeNewRequest(List<PendingRequest> pending) {
     final newRequest = widget.newRequest;
     if (newRequest == null) return;
@@ -119,6 +203,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     try {
       final items = await MongoDataApiService.instance.fetchRequests();
+      final transactions = await MongoDataApiService.instance.fetchTransactions();
       final pending = <PendingRequest>[];
       final history = <HistoryItem>[];
 
@@ -129,23 +214,40 @@ class _HomeScreenState extends State<HomeScreen> {
         final statusRaw = item['status']?.toString().trim() ?? 'pending';
         final createdAt = _parseRequestDate(item['createdAt']);
         final status = _displayStatus(statusRaw);
+        final documentPrice = _parseAmount(item['documentPrice']);
+        final processingFee = _parseAmount(item['processingFee']);
+        final totalAmount = _parseAmount(item['totalAmount']);
+        final resolvedTotal = totalAmount > 0
+          ? totalAmount
+          : documentPrice + processingFee;
 
-        if (_isCompletedStatus(statusRaw)) {
-          history.add(HistoryItem(
-            title: docName,
-            date: createdAt,
-            purpose: purpose,
-            status: status,
-            isApproved: _isApprovedStatus(statusRaw),
-          ));
-        } else {
+        if (!_isCompletedStatus(statusRaw)) {
           pending.add(PendingRequest(
             docName: docName,
             purpose: purpose,
             dateCreated: createdAt,
             status: status,
+            documentPrice: documentPrice,
+            processingFee: processingFee,
+            totalAmount: resolvedTotal,
           ));
         }
+      }
+
+      for (final item in transactions) {
+        final docName = item['docName']?.toString().trim() ?? '';
+        if (docName.isEmpty) continue;
+        final purpose = item['purpose']?.toString().trim() ?? '';
+        final statusRaw = item['status']?.toString().trim() ?? 'completed';
+        final createdAt = _parseRequestDate(item['createdAt']);
+        final status = _displayStatus(statusRaw);
+        history.add(HistoryItem(
+          title: docName,
+          date: createdAt,
+          purpose: purpose,
+          status: status,
+          isApproved: _isApprovedStatus(statusRaw),
+        ));
       }
 
       _mergeNewRequest(pending);
@@ -196,6 +298,13 @@ class _HomeScreenState extends State<HomeScreen> {
     if (value == 1 || value == 2) {
       _loadRequests();
     }
+  }
+
+  @override
+  void dispose() {
+    _notificationTimer?.cancel();
+    _pageController.dispose();
+    super.dispose();
   }
 
 

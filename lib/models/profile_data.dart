@@ -8,6 +8,7 @@ class ProfileData {
     required this.schoolEmail,
     required this.personalEmail,
     required this.role,
+    this.profileImageUrl = '',
   });
 
   final String firstName;
@@ -18,6 +19,7 @@ class ProfileData {
   final String schoolEmail;
   final String personalEmail;
   final String role;
+  final String profileImageUrl;
 
   bool get isAlumni => role.toLowerCase() == 'alumni';
 
@@ -36,6 +38,8 @@ class ProfileData {
     final personalEmail = readString('personalEmail');
     final email = readString('email');
     final role = readString('role');
+    final profileImageUrl = readString('profileImageUrl');
+    final profilePic = readString('profilePic');
 
     return ProfileData(
       firstName: readString('firstName'),
@@ -46,11 +50,13 @@ class ProfileData {
       schoolEmail: readString('schoolEmail'),
       personalEmail: personalEmail.isNotEmpty ? personalEmail : email,
       role: role.isNotEmpty ? role : 'alumni',
+      profileImageUrl:
+          profileImageUrl.isNotEmpty ? profileImageUrl : profilePic,
     );
   }
 
   Map<String, dynamic> toJson() {
-    return {
+    final data = {
       'firstName': firstName.trim(),
       'lastName': lastName.trim(),
       'studentId': studentId.trim(),
@@ -59,5 +65,9 @@ class ProfileData {
       'schoolEmail': schoolEmail.trim(),
       'personalEmail': personalEmail.trim(),
     };
+    if (profileImageUrl.trim().isNotEmpty) {
+      data['profileImageUrl'] = profileImageUrl.trim();
+    }
+    return data;
   }
 }

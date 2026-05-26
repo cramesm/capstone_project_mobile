@@ -28,9 +28,11 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
 
   bool get _hasReceipt =>
       _onSiteReceiptBytes != null || _gcashReceiptBytes != null;
-
-  Future<void> _pickReceipt({required bool isGcash}) async {
-    final source = ImageSource.gallery;
+  String _amountLabel(double value) => 'PHP ${value.toStringAsFixed(2)}';
+  Future<void> _pickReceipt({
+    required bool isGcash,
+    required ImageSource source,
+  }) async {
     final file = await _picker.pickImage(
       source: source,
       maxWidth: 1600,
@@ -51,6 +53,35 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
     });
   }
 
+  void _showReceiptSourceSheet({required bool isGcash}) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera),
+              title: const Text('Take photo'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickReceipt(isGcash: isGcash, source: ImageSource.camera);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Choose from gallery'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickReceipt(isGcash: isGcash, source: ImageSource.gallery);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _submitPayment() async {
     setState(() {
       _isSubmitting = true;
@@ -65,6 +96,8 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
           paymentType: 'onsite',
           docName: widget.request.docName,
           purpose: widget.request.purpose,
+          amount: widget.request.totalAmount,
+          status: 'pending',
         );
       }
       if (_gcashReceiptBytes != null) {
@@ -74,6 +107,8 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
           paymentType: 'gcash',
           docName: widget.request.docName,
           purpose: widget.request.purpose,
+          amount: widget.request.totalAmount,
+          status: 'pending',
         );
       }
 
@@ -83,6 +118,9 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
         purpose: widget.request.purpose,
         dateCreated: widget.request.dateCreated,
         status: 'PENDING TO COMPLETE',
+        documentPrice: widget.request.documentPrice,
+        processingFee: widget.request.processingFee,
+        totalAmount: widget.request.totalAmount,
       );
       Navigator.push(
         context,
@@ -126,10 +164,20 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
                 children: [
               _buildSectionCard("Billing Summary", [
               _infoRow("Document Requested", widget.request.docName),
-              _infoRow("Processing Fee", "PHP 10.00"),
-              _infoRow("Document Price", "PHP 100.00"),
+              _infoRow(
+                "Processing Fee",
+                _amountLabel(widget.request.processingFee),
+              ),
+              _infoRow(
+                "Document Price",
+                _amountLabel(widget.request.documentPrice),
+              ),
               const Divider(),
-              _infoRow("Total Amount Due", "PHP 110.00", isBold: true),
+              _infoRow(
+                "Total Amount Due",
+                _amountLabel(widget.request.totalAmount),
+                isBold: true,
+              ),
             ]),
                 ],
               ),
@@ -153,8 +201,7 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
                     buttonLabel: "Upload file",
                     onPressed: _isSubmitting
                         ? null
-                        : () => _pickReceipt(isGcash: false),
-                    previewBytes: _onSiteReceiptBytes,
+                      : () => _showReceiptSourceSheet(isGcash: false),
                     fileName: _onSiteReceiptName,
                   ),
                   SizedBox(height: 12.h),
@@ -164,8 +211,7 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
                     buttonLabel: "Upload file",
                     onPressed: _isSubmitting
                         ? null
-                        : () => _pickReceipt(isGcash: true),
-                    previewBytes: _gcashReceiptBytes,
+                      : () => _showReceiptSourceSheet(isGcash: true),
                     fileName: _gcashReceiptName,
                   ),
                 ],
@@ -253,7 +299,6 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
     required String description,
     required String buttonLabel,
     required VoidCallback? onPressed,
-    Uint8List? previewBytes,
     String? fileName,
   }) {
     return Container(
@@ -275,18 +320,6 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
             icon: const Icon(Icons.upload_file),
             label: Text(buttonLabel),
           ),
-          if (previewBytes != null) ...[
-            SizedBox(height: 8.h),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8.r),
-              child: Image.memory(
-                previewBytes,
-                height: 140.h,
-                width: double.infinity,
-                fit: BoxFit.cover,
-              ),
-            ),
-          ],
           if (fileName != null && fileName.trim().isNotEmpty) ...[
             SizedBox(height: 6.h),
             CustomFont(text: fileName, fontSize: 10.sp, color: Colors.black54),
@@ -341,6 +374,9 @@ class SuccessfulScreen extends StatelessWidget {
                           purpose: request.purpose,
                           dateCreated: request.dateCreated,
                           status: "Processing", // Updated status
+                          documentPrice: request.documentPrice,
+                          processingFee: request.processingFee,
+                          totalAmount: request.totalAmount,
                         ),
                       ),
                     ),

@@ -98,6 +98,15 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
     );
   }
 
+  double _parseAmount(dynamic value) {
+    if (value is num) return value.toDouble();
+    if (value is String) {
+      final parsed = double.tryParse(value);
+      if (parsed != null) return parsed;
+    }
+    return 0;
+  }
+
   Future<void> _handleSubmission() async {
     if (_isSubmitting) return;
     // Check main requirements
@@ -169,6 +178,13 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
     // Redirect to Pending Screen (Index 1 of your Home/Main layout)
     // Adjust 'HomeScreen' to match your actual Main/Home class name
     final statusRaw = response?['request']?['status']?.toString() ?? '';
+    final requestData = response?['request'];
+    final documentPrice = _parseAmount(requestData?['documentPrice']);
+    final processingFee = _parseAmount(requestData?['processingFee']);
+    final totalAmount = _parseAmount(requestData?['totalAmount']);
+    final resolvedTotal = totalAmount > 0
+      ? totalAmount
+      : documentPrice + processingFee;
     final displayStatus = statusRaw.trim().toLowerCase() == 'pending_completion'
         ? 'PENDING TO COMPLETE'
         : 'PENDING FOR PAYMENT';
@@ -182,6 +198,9 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
             purpose: finalPurpose,
             docName: finalDocName,
             dateCreated: DateTime.now(),
+            documentPrice: documentPrice,
+            processingFee: processingFee,
+            totalAmount: resolvedTotal,
           ),
         ),
       ),

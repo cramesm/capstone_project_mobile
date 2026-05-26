@@ -16,6 +16,8 @@ class PaymentDetailsScreen extends StatefulWidget {
 class _PaymentDetailsScreenState extends State<PaymentDetailsScreen> {
   bool _isConfirmed = false;
 
+  String _amountLabel(double value) => 'PHP ${value.toStringAsFixed(2)}';
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -38,10 +40,39 @@ class _PaymentDetailsScreenState extends State<PaymentDetailsScreen> {
             SizedBox(height: 15.h),
             _buildSectionCard("Billing Summary", [
               _infoRow("Document Requested", widget.request.docName),
-              _infoRow("Processing Fee", "PHP 10.00"),
-              _infoRow("Document Price", "PHP 100.00"),
+              _infoRow(
+                "Processing Fee",
+                _amountLabel(widget.request.processingFee),
+              ),
+              _infoRow(
+                "Document Price",
+                _amountLabel(widget.request.documentPrice),
+              ),
               const Divider(),
-              _infoRow("Total Amount Due", "PHP 110.00", isBold: true),
+              _infoRow(
+                "Total Amount Due",
+                _amountLabel(widget.request.totalAmount),
+                isBold: true,
+              ),
+            ]),
+            SizedBox(height: 15.h),
+            _buildSectionCard("GCash QR", [
+              Center(
+                child: Image.asset(
+                  'assets/image/sample_qr.png',
+                  width: 200.r,
+                  height: 200.r,
+                  fit: BoxFit.contain,
+                ),
+              ),
+              SizedBox(height: 8.h),
+              Center(
+                child: CustomFont(
+                  text: "Scan to pay ${_amountLabel(widget.request.totalAmount)}",
+                  fontSize: 12.sp,
+                  color: Colors.black54,
+                ),
+              ),
             ]),
             SizedBox(height: 20.h),
             Row(
