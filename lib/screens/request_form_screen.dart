@@ -14,12 +14,13 @@ class RequestFormScreen extends StatefulWidget {
 
 class _RequestFormScreenState extends State<RequestFormScreen> {
   // --- State Variables ---
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   String? _mainDocType;
-  String? _subDocType;
   String? _selectedPurpose;
   bool _isConfirmed = false;
   bool _isSubmitting = false;
 
+  final TextEditingController _otherDocumentController = TextEditingController();
   final TextEditingController _otherPurposeController = TextEditingController();
 
   // --- Document Price Data ---
@@ -42,29 +43,6 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
     {'name': 'Certificate of Enrollment', 'price': 250.00},
     {'name': 'Clearance', 'price': 200.00},
     {'name': 'Others', 'price': 0.00},
-  ];
-
-  // --- Data Lists ---
-  final List<String> mainCategories = [
-    'Certifications',
-    'Certified True Copy',
-    'Transcript of Records'
-  ];
-
-  final List<String> certificationList = [
-    'Certificate of Enrollment',
-    'Certificate of Good Moral',
-    'Grade Certification',
-    'Certificate of Candidacy for Graduation',
-    'Certificate of Units Earned',
-    'Certificate of Assessment',
-    'Certificate of Registration'
-  ];
-
-  final List<String> trueCopyList = [
-    'CTC of Certificate of Matriculation',
-    'CTC of Diploma',
-    'CTC of Curriculum',
   ];
 
   final List<String> purposes = [
@@ -107,21 +85,26 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
     return 0;
   }
 
-  Future<void> _handleSubmission() async {
-    if (_isSubmitting) return;
-    // Check main requirements
-    if (_mainDocType == null || _selectedPurpose == null) {
-      _showErrorDialog("Please select the document type and purpose.");
-      return;
+  String? _validateOtherInput(String? value, String fieldName) {
+    final trimmed = value?.trim() ?? '';
+    final wordCount = trimmed.isEmpty
+        ? 0
+        : trimmed.split(RegExp(r'\s+')).where((word) => word.isNotEmpty).length;
+
+    if (trimmed.isEmpty) {
+      return 'Please specify $fieldName.';
     }
 
-    // Check sub-selection if needed
-    if ((_mainDocType == 'Certifications' ||
-            _mainDocType == 'Certified True Copy') &&
-        _subDocType == null) {
-      _showErrorDialog("Please specify which document you need from the list.");
-      return;
+    if (trimmed.length < 3 && wordCount < 2) {
+      return 'Please enter at least 3 characters or 2 words.';
     }
+
+    return null;
+  }
+
+  Future<void> _handleSubmission() async {
+    if (_isSubmitting) return;
+    if (!(_formKey.currentState?.validate() ?? false)) return;
 
     // Check Checkbox
     if (!_isConfirmed) {
@@ -131,18 +114,13 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
     }
 
     // Prepare data for the Pending Screen
-    String finalDocName = (_mainDocType == 'Transcript of Records')
-        ? 'Transcript of Records'
-        : (_subDocType ?? _mainDocType!);
+    String finalDocName = (_mainDocType == 'Others')
+      ? _otherDocumentController.text.trim()
+      : _mainDocType!;
 
     String finalPurpose = (_selectedPurpose == 'Others')
-        ? _otherPurposeController.text.trim()
-        : _selectedPurpose!;
-
-    if (finalPurpose.isEmpty) {
-      _showErrorDialog("Please specify the purpose of your request.");
-      return;
-    }
+      ? _otherPurposeController.text.trim()
+      : _selectedPurpose!;
 
     setState(() {
       _isSubmitting = true;
@@ -177,14 +155,16 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
 
     // Redirect to Pending Screen (Index 1 of your Home/Main layout)
     // Adjust 'HomeScreen' to match your actual Main/Home class name
-    final statusRaw = response?['request']?['status']?.toString() ?? '';
-    final requestData = response?['request'];
-    final documentPrice = _parseAmount(requestData?['documentPrice']);
-    final processingFee = _parseAmount(requestData?['processingFee']);
-    final totalAmount = _parseAmount(requestData?['totalAmount']);
+    final requestData = response['request'];
+    final requestMap = requestData is Map
+      ? Map<String, dynamic>.from(requestData)
+      : <String, dynamic>{};
+    final statusRaw = requestMap['status']?.toString() ?? '';
+    final documentPrice = _parseAmount(requestMap['documentPrice']);
+    final totalAmount = _parseAmount(requestMap['totalAmount']);
     final resolvedTotal = totalAmount > 0
       ? totalAmount
-      : documentPrice + processingFee;
+      : documentPrice;
     final displayStatus = statusRaw.trim().toLowerCase() == 'pending_completion'
         ? 'PENDING TO COMPLETE'
         : 'PENDING FOR PAYMENT';
@@ -199,7 +179,6 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
             docName: finalDocName,
             dateCreated: DateTime.now(),
             documentPrice: documentPrice,
-            processingFee: processingFee,
             totalAmount: resolvedTotal,
           ),
         ),
@@ -209,6 +188,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
 
   @override
   void dispose() {
+    _otherDocumentController.dispose();
     _otherPurposeController.dispose();
     super.dispose();
   }
@@ -235,115 +215,121 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
       ),
       body: SingleChildScrollView(
         padding: EdgeInsets.all(25.w),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text("Document Request",
-                style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.bold)),
-            SizedBox(height: 20.h),
+        child: Form(
+          key: _formKey,
+          autovalidateMode: AutovalidateMode.onUserInteraction,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text("Document Request",
+                  style: TextStyle(fontSize: 18.sp, fontWeight: FontWeight.bold)),
+              SizedBox(height: 20.h),
 
-            // Document Price List
-            Text("Available Documents and Prices",
-                style: TextStyle(
-                    fontSize: 14.sp,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87)),
-            SizedBox(height: 12.h),
-            _buildPriceListTable(),
-            SizedBox(height: 30.h),
+              // Document Price List
+              Text("Available Documents and Prices",
+                  style: TextStyle(
+                      fontSize: 14.sp,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87)),
+              SizedBox(height: 12.h),
+              _buildPriceListTable(),
+              SizedBox(height: 30.h),
 
-            // 1. Main Category Dropdown
-            _buildLabel("Type of Document:"),
-            _buildDropdown(
-              hint: "Type of Document",
-              value: _mainDocType,
-              items: mainCategories,
-              onChanged: (val) {
-                setState(() {
-                  _mainDocType = val;
-                  _subDocType = null; // Clear sub-dropdown when parent changes
-                });
-              },
-            ),
-
-            // 2. Nested Dropdown Logic
-            if (_mainDocType == 'Certifications') ...[
-              _buildLabel("Certifications:"),
+              // Document Dropdown
+              _buildLabel("Document:"),
               _buildDropdown(
-                hint: "Choose Document to Request",
-                value: _subDocType,
-                items: certificationList,
-                onChanged: (val) => setState(() => _subDocType = val),
+                hint: "Choose Document",
+                value: _mainDocType,
+                items: allDocuments
+                    .map((doc) => doc['name'].toString())
+                    .toList(),
+                onChanged: (val) => setState(() => _mainDocType = val),
+                validator: (val) {
+                  if (val == null || val.trim().isEmpty) {
+                    return 'Please select a document.';
+                  }
+                  return null;
+                },
               ),
-            ] else if (_mainDocType == 'Certified True Copy') ...[
-              _buildLabel("Certified True Copy:"),
-              _buildDropdown(
-                hint: "Choose Document to Request",
-                value: _subDocType,
-                items: trueCopyList,
-                onChanged: (val) => setState(() => _subDocType = val),
-              ),
-            ],
 
-            // 3. Purpose Dropdown
-            _buildLabel("Purpose of Request:"),
-            _buildDropdown(
-              hint: "Purpose of Request",
-              value: _selectedPurpose,
-              items: purposes,
-              onChanged: (val) => setState(() => _selectedPurpose = val),
-            ),
-
-            // 4. Conditional Other Field
-            if (_selectedPurpose == 'Others') ...[
-              SizedBox(height: 10.h),
-              TextFormField(
-                controller: _otherPurposeController,
-                decoration: _inputDecoration(hint: "Please specify purpose"),
-              ),
-            ],
-
-            SizedBox(height: 120.h), // Spacing before footer
-
-            // 5. Checkbox
-            Row(
-              children: [
-                Checkbox(
-                  value: _isConfirmed,
-                  activeColor: const Color(0xFF5D7E97),
-                  onChanged: (val) => setState(() => _isConfirmed = val!),
-                ),
-                Expanded(
-                  child: Text(
-                    "I confirm that the details I provided are true, accurate, and complete.",
-                    style: TextStyle(fontSize: 11.sp, color: Colors.black54),
-                  ),
+              if (_mainDocType == 'Others') ...[
+                SizedBox(height: 10.h),
+                TextFormField(
+                  controller: _otherDocumentController,
+                  decoration: _inputDecoration(hint: "Please specify document"),
+                  validator: (value) =>
+                      _validateOtherInput(value, 'the document'),
                 ),
               ],
-            ),
 
-            SizedBox(height: 20.h),
-
-            // 6. Submit Button
-            Align(
-              alignment: Alignment.bottomRight,
-              child: ElevatedButton(
-                onPressed: _isSubmitting ? null : _handleSubmission,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF233446), // Dark Navy
-                  padding:
-                      EdgeInsets.symmetric(horizontal: 45.w, vertical: 12.h),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8.r)),
-                ),
-                child: Text(_isSubmitting ? "Submitting..." : "Submit",
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16.sp,
-                        fontWeight: FontWeight.bold)),
+              // 3. Purpose Dropdown
+              _buildLabel("Purpose of Request:"),
+              _buildDropdown(
+                hint: "Purpose of Request",
+                value: _selectedPurpose,
+                items: purposes,
+                onChanged: (val) => setState(() => _selectedPurpose = val),
+                validator: (val) {
+                  if (val == null || val.trim().isEmpty) {
+                    return 'Please select a purpose.';
+                  }
+                  return null;
+                },
               ),
-            ),
-          ],
+
+              // 4. Conditional Other Field
+              if (_selectedPurpose == 'Others') ...[
+                SizedBox(height: 10.h),
+                TextFormField(
+                  controller: _otherPurposeController,
+                  decoration: _inputDecoration(hint: "Please specify purpose"),
+                  validator: (value) =>
+                      _validateOtherInput(value, 'the purpose'),
+                ),
+              ],
+
+              SizedBox(height: 120.h), // Spacing before footer
+
+              // 5. Checkbox
+              Row(
+                children: [
+                  Checkbox(
+                    value: _isConfirmed,
+                    activeColor: const Color(0xFF5D7E97),
+                    onChanged: (val) => setState(() => _isConfirmed = val!),
+                  ),
+                  Expanded(
+                    child: Text(
+                      "I confirm that the details I provided are true, accurate, and complete.",
+                      style: TextStyle(fontSize: 11.sp, color: Colors.black54),
+                    ),
+                  ),
+                ],
+              ),
+
+              SizedBox(height: 20.h),
+
+              // 6. Submit Button
+              Align(
+                alignment: Alignment.bottomRight,
+                child: ElevatedButton(
+                  onPressed: _isSubmitting ? null : _handleSubmission,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF233446), // Dark Navy
+                    padding:
+                        EdgeInsets.symmetric(horizontal: 45.w, vertical: 12.h),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8.r)),
+                  ),
+                  child: Text(_isSubmitting ? "Submitting..." : "Submit",
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 16.sp,
+                          fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -366,20 +352,21 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
       {required String hint,
       String? value,
       required List<String> items,
-      required Function(String?) onChanged}) {
+      required Function(String?) onChanged,
+      String? Function(String?)? validator}) {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(8.r),
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withAlpha(13),
               blurRadius: 5,
               offset: const Offset(0, 2))
         ],
       ),
       child: DropdownButtonFormField<String>(
-        value: value,
+        initialValue: value,
         isExpanded: true,
         hint: Text(hint, style: TextStyle(fontSize: 13.sp, color: Colors.grey)),
         icon: const Icon(Icons.arrow_drop_down, color: Colors.black54),
@@ -389,6 +376,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
               borderRadius: BorderRadius.circular(8.r),
               borderSide: BorderSide.none),
         ),
+        validator: validator,
         items: items
             .map((e) => DropdownMenuItem(
                 value: e, child: Text(e, style: TextStyle(fontSize: 13.sp))))
@@ -423,7 +411,7 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
         borderRadius: BorderRadius.circular(8.r),
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withAlpha(13),
               blurRadius: 5,
               offset: const Offset(0, 2))
         ],
@@ -431,12 +419,13 @@ class _RequestFormScreenState extends State<RequestFormScreen> {
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: DataTable(
-          headingRowColor: MaterialStateProperty.all(const Color(0xFF5D7E97)),
+          headingRowColor: WidgetStateProperty.all(const Color(0xFF5D7E97)),
           headingTextStyle: TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.bold,
               fontSize: 12.sp),
-          dataRowHeight: 40.h,
+          dataRowMinHeight: 40.h,
+          dataRowMaxHeight: 40.h,
           columnSpacing: 20.w,
           columns: [
             DataColumn(

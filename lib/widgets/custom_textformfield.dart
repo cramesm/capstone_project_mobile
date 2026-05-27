@@ -58,7 +58,7 @@ class CustomTextFormField extends StatelessWidget {
           hintText: hintText,
           hintStyle: TextStyle(
             fontSize: hintTextSize,
-            color: fontColor.withOpacity(0.75),
+            color: fontColor.withAlpha(191),
           ),
           suffixIcon: suffixIcon,
           contentPadding:

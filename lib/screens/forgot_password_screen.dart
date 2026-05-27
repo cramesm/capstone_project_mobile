@@ -194,7 +194,7 @@ class _PasswordScreenState extends State<PasswordScreen> {
             child: Container(
               width: double.infinity,
               decoration: BoxDecoration(
-                color: FB_PRIMARY,
+                color: fbPrimary,
                 borderRadius: BorderRadius.only(
                   topLeft: Radius.circular(30.r),
                   topRight: Radius.circular(30.r),
@@ -232,7 +232,7 @@ class _PasswordScreenState extends State<PasswordScreen> {
                         hintText: 'Email',
                         fontSize: 14.sp,
                         hintTextSize: 14.sp,
-                        fontColor: FB_DARK_PRIMARY,
+                        fontColor: fbDarkPrimary,
                         bgColor: Colors.white,
                         validator: (value) {
                           if (value == null || value.isEmpty) {
@@ -251,7 +251,7 @@ class _PasswordScreenState extends State<PasswordScreen> {
                           child: Text(
                             _isRequestingOtp ? 'Sending...' : 'Verify email',
                             style: TextStyle(
-                              color: FB_BACKGROUND_LIGHT,
+                              color: fbBackgroundLight,
                               fontSize: 12.sp,
                             ),
                           ),
@@ -274,7 +274,7 @@ class _PasswordScreenState extends State<PasswordScreen> {
                           text: 'Enter OTP',
                           fontSize: 16.sp,
                           fontWeight: FontWeight.bold,
-                          color: FB_TEXT_COLOR_WHITE,
+                          color: fbTextColorWhite,
                         ),
                       ),
                       SizedBox(height: 15.h),
@@ -290,7 +290,7 @@ class _PasswordScreenState extends State<PasswordScreen> {
                           child: Text(
                             'Resend code',
                             style: TextStyle(
-                              color: FB_BACKGROUND_LIGHT,
+                              color: fbBackgroundLight,
                               fontSize: 12.sp,
                             ),
                           ),
@@ -306,7 +306,7 @@ class _PasswordScreenState extends State<PasswordScreen> {
                         buttonName: _isVerifyingOtp ? 'Verifying...' : 'Verify',
                         fontSize: 24.sp,
                         fontWeight: FontWeight.bold,
-                        bgColor: FB_DARK_PRIMARY,
+                        bgColor: fbDarkPrimary,
                         fontColor: Colors.white,
                       ),
                       SizedBox(height: 10.h),
@@ -328,7 +328,7 @@ class _PasswordScreenState extends State<PasswordScreen> {
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 13.sp,
-                                  color: FB_BACKGROUND_LIGHT,
+                                  color: fbBackgroundLight,
                                 ),
                                 recognizer: TapGestureRecognizer()
                                   ..onTap = () => Navigator.pop(context),
@@ -354,7 +354,7 @@ class _PasswordScreenState extends State<PasswordScreen> {
       width: 40.w,
       height: 45.h,
       decoration: BoxDecoration(
-        color: FB_TEXT_COLOR_WHITE,
+        color: fbTextColorWhite,
         
         border: Border.all(color: Colors.grey.shade400),
         borderRadius: BorderRadius.circular(8.r),
@@ -365,7 +365,7 @@ class _PasswordScreenState extends State<PasswordScreen> {
        
         textAlign: TextAlign.center,
         keyboardType: TextInputType.number,
-        style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold, color: FB_DARK_PRIMARY),
+        style: TextStyle(fontSize: 20.sp, fontWeight: FontWeight.bold, color: fbDarkPrimary),
         maxLength: 1,
         inputFormatters: [
           FilteringTextInputFormatter.digitsOnly,
@@ -521,7 +521,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
             child: Container(
               width: double.infinity,
               decoration: BoxDecoration(
-                color: FB_PRIMARY,
+                color: fbPrimary,
                 borderRadius: BorderRadius.only(
                   topLeft: Radius.circular(30.r),
                   topRight: Radius.circular(30.r),
@@ -552,7 +552,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                         hintText: 'New Password',
                         fontSize: 14.sp,
                         hintTextSize: 14.sp,
-                        fontColor: FB_DARK_PRIMARY,
+                        fontColor: fbDarkPrimary,
                         bgColor: Colors.white,
                         suffixIcon: IconButton(
                           padding: EdgeInsets.zero,
@@ -560,7 +560,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                             _isPasswordVisible
                                 ? Icons.visibility
                                 : Icons.visibility_off,
-                            color: FB_DARK_PRIMARY,
+                            color: fbDarkPrimary,
                             size: 20.sp,
                           ),
                           onPressed: () {
@@ -584,7 +584,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                         hintText: 'Confirm Password',
                         fontSize: 14.sp,
                         hintTextSize: 14.sp,
-                        fontColor: FB_DARK_PRIMARY,
+                        fontColor: fbDarkPrimary,
                         bgColor: Colors.white,
                         suffixIcon: IconButton(
                           padding: EdgeInsets.zero,
@@ -592,7 +592,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                             _isPasswordVisible
                                 ? Icons.visibility
                                 : Icons.visibility_off,
-                            color: FB_DARK_PRIMARY,
+                            color: fbDarkPrimary,
                             size: 20.sp,
                           ),
                           onPressed: () {
@@ -616,7 +616,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                             _isSubmitting ? 'Resetting...' : 'Reset Password',
                         fontSize: 24.sp,
                         fontWeight: FontWeight.bold,
-                        bgColor: FB_DARK_PRIMARY,
+                        bgColor: fbDarkPrimary,
                         fontColor: Colors.white,
                       ),
                       SizedBox(height: 20.h),
@@ -638,7 +638,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
                                 style: TextStyle(
                                   fontWeight: FontWeight.bold,
                                   fontSize: 13.sp,
-                                  color: FB_BACKGROUND_LIGHT,
+                                  color: fbBackgroundLight,
                                 ),
                                 recognizer: TapGestureRecognizer()
                                   ..onTap = () => Navigator.pushAndRemoveUntil(

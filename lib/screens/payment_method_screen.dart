@@ -21,16 +21,12 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
   bool _acknowledged = false;
   bool _isSubmitting = false;
   final ImagePicker _picker = ImagePicker();
-  Uint8List? _onSiteReceiptBytes;
-  String? _onSiteReceiptName;
-  Uint8List? _gcashReceiptBytes;
-  String? _gcashReceiptName;
+  Uint8List? _receiptBytes;
+  String? _receiptName;
 
-  bool get _hasReceipt =>
-      _onSiteReceiptBytes != null || _gcashReceiptBytes != null;
+  bool get _hasReceipt => _receiptBytes != null;
   String _amountLabel(double value) => 'PHP ${value.toStringAsFixed(2)}';
   Future<void> _pickReceipt({
-    required bool isGcash,
     required ImageSource source,
   }) async {
     final file = await _picker.pickImage(
@@ -43,17 +39,12 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
 
     final bytes = await file.readAsBytes();
     setState(() {
-      if (isGcash) {
-        _gcashReceiptBytes = bytes;
-        _gcashReceiptName = file.name;
-      } else {
-        _onSiteReceiptBytes = bytes;
-        _onSiteReceiptName = file.name;
-      }
+      _receiptBytes = bytes;
+      _receiptName = file.name;
     });
   }
 
-  void _showReceiptSourceSheet({required bool isGcash}) {
+  void _showReceiptSourceSheet() {
     showModalBottomSheet(
       context: context,
       builder: (context) => SafeArea(
@@ -65,7 +56,7 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
               title: const Text('Take photo'),
               onTap: () {
                 Navigator.pop(context);
-                _pickReceipt(isGcash: isGcash, source: ImageSource.camera);
+                _pickReceipt(source: ImageSource.camera);
               },
             ),
             ListTile(
@@ -73,7 +64,7 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
               title: const Text('Choose from gallery'),
               onTap: () {
                 Navigator.pop(context);
-                _pickReceipt(isGcash: isGcash, source: ImageSource.gallery);
+                _pickReceipt(source: ImageSource.gallery);
               },
             ),
           ],
@@ -89,25 +80,14 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
 
     try {
       final service = MongoDataApiService.instance;
-      if (_onSiteReceiptBytes != null) {
+      if (_receiptBytes != null) {
         await service.uploadReceipt(
-          bytes: _onSiteReceiptBytes!,
-          fileName: _onSiteReceiptName ?? 'onsite-receipt.jpg',
-          paymentType: 'onsite',
+          bytes: _receiptBytes!,
+          fileName: _receiptName ?? 'payment-receipt.jpg',
+          paymentType: 'receipt',
           docName: widget.request.docName,
           purpose: widget.request.purpose,
-          amount: widget.request.totalAmount,
-          status: 'pending',
-        );
-      }
-      if (_gcashReceiptBytes != null) {
-        await service.uploadReceipt(
-          bytes: _gcashReceiptBytes!,
-          fileName: _gcashReceiptName ?? 'gcash-receipt.jpg',
-          paymentType: 'gcash',
-          docName: widget.request.docName,
-          purpose: widget.request.purpose,
-          amount: widget.request.totalAmount,
+          amount: widget.request.documentPrice,
           status: 'pending',
         );
       }
@@ -119,8 +99,7 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
         dateCreated: widget.request.dateCreated,
         status: 'PENDING TO COMPLETE',
         documentPrice: widget.request.documentPrice,
-        processingFee: widget.request.processingFee,
-        totalAmount: widget.request.totalAmount,
+        totalAmount: widget.request.documentPrice,
       );
       Navigator.push(
         context,
@@ -159,15 +138,8 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
         padding: EdgeInsets.all(20.w),
         child: Column(
           children: [
-           Container(
-              child: Column(
-                children: [
-              _buildSectionCard("Billing Summary", [
+            _buildSectionCard("Billing Summary", [
               _infoRow("Document Requested", widget.request.docName),
-              _infoRow(
-                "Processing Fee",
-                _amountLabel(widget.request.processingFee),
-              ),
               _infoRow(
                 "Document Price",
                 _amountLabel(widget.request.documentPrice),
@@ -175,13 +147,10 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
               const Divider(),
               _infoRow(
                 "Total Amount Due",
-                _amountLabel(widget.request.totalAmount),
+                _amountLabel(widget.request.documentPrice),
                 isBold: true,
               ),
             ]),
-                ],
-              ),
-           ),
             
 
 
@@ -196,23 +165,13 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
                   CustomFont(text: "Upload Receipt", fontSize: 16.sp, fontWeight: FontWeight.bold, color: const Color(0xFF233446)),
                   SizedBox(height: 12.h),
                   _buildReceiptSection(
-                    title: "Paid on site",
-                    description: "Upload the official receipt file.",
+                    title: "Receipt",
+                    description: "Upload your official receipt file.",
                     buttonLabel: "Upload file",
                     onPressed: _isSubmitting
                         ? null
-                      : () => _showReceiptSourceSheet(isGcash: false),
-                    fileName: _onSiteReceiptName,
-                  ),
-                  SizedBox(height: 12.h),
-                  _buildReceiptSection(
-                    title: "GCash payment",
-                    description: "Upload the GCash receipt file.",
-                    buttonLabel: "Upload file",
-                    onPressed: _isSubmitting
-                        ? null
-                      : () => _showReceiptSourceSheet(isGcash: true),
-                    fileName: _gcashReceiptName,
+                      : _showReceiptSourceSheet,
+                    fileName: _receiptName,
                   ),
                 ],
               ),
@@ -267,7 +226,13 @@ class _PaymentMethodScreenState extends State<PaymentMethodScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12.r),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(13),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          )
+        ],
         border: Border.all(color: Colors.grey.shade100),
       ),
       child: Column(
@@ -375,7 +340,6 @@ class SuccessfulScreen extends StatelessWidget {
                           dateCreated: request.dateCreated,
                           status: "Processing", // Updated status
                           documentPrice: request.documentPrice,
-                          processingFee: request.processingFee,
                           totalAmount: request.totalAmount,
                         ),
                       ),

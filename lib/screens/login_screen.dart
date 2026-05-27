@@ -110,7 +110,7 @@ class _LogInScreenState extends State<LogInScreen> {
             child: Container(
               width: double.infinity,
               decoration: BoxDecoration(
-                color: FB_PRIMARY,
+                color: fbPrimary,
                 borderRadius: BorderRadius.only(
                   topLeft: Radius.circular(30.r),
                   topRight: Radius.circular(30.r),
@@ -138,10 +138,10 @@ class _LogInScreenState extends State<LogInScreen> {
                           width: ScreenUtil().setWidth(10),
                           controller: emailController,
                           hintText: 'Email',
-                          bgColor: FB_TEXT_COLOR_WHITE,
+                          bgColor: fbTextColorWhite,
                           fontSize: 14.sp,
                           hintTextSize: 14.sp,
-                          fontColor: FB_DARK_PRIMARY,
+                          fontColor: fbDarkPrimary,
                           validator: (value) {
                             final email = value?.trim() ?? '';
                             if (email.isEmpty) {
@@ -163,10 +163,10 @@ class _LogInScreenState extends State<LogInScreen> {
                           controller: passwordController,
                           isObscure: !_isPasswordVisible,
                           hintText: 'Password',
-                          bgColor: FB_TEXT_COLOR_WHITE,
+                          bgColor: fbTextColorWhite,
                           fontSize: 14.sp,
                           hintTextSize: 14.sp,
-                          fontColor: FB_DARK_PRIMARY,
+                          fontColor: fbDarkPrimary,
                             validator: (value) => value == null || value.isEmpty
                               ? 'Enter password'
                               : null,
@@ -176,7 +176,7 @@ class _LogInScreenState extends State<LogInScreen> {
                               _isPasswordVisible
                                   ? Icons.visibility
                                   : Icons.visibility_off,
-                              color: FB_DARK_PRIMARY,
+                              color: fbDarkPrimary,
                               size: 20.sp,
                             ),
                             onPressed: () {
@@ -204,7 +204,7 @@ class _LogInScreenState extends State<LogInScreen> {
                             child: Text(
                               'Forgot Password?',
                               style: TextStyle(
-                                color: FB_BACKGROUND_LIGHT,
+                                color: fbBackgroundLight,
                                 fontSize: 12.sp,
                                 decoration: TextDecoration.underline,
                               ),
@@ -219,10 +219,10 @@ class _LogInScreenState extends State<LogInScreen> {
                           height: 55.h,
                           width: ScreenUtil().screenWidth,
                           buttonName: _isLoading ? 'Logging in...' : 'Login',
-                          fontColor: FB_TEXT_COLOR_WHITE,
+                          fontColor: fbTextColorWhite,
                           fontSize: 24.sp,
                           fontWeight: FontWeight.bold,
-                          bgColor: FB_DARK_PRIMARY,
+                          bgColor: fbDarkPrimary,
                         ),
 
                         SizedBox(height: 25.h),
@@ -247,7 +247,7 @@ class _LogInScreenState extends State<LogInScreen> {
                                       style: TextStyle(
                                         fontWeight: FontWeight.bold,
                                         fontSize: 13.sp,
-                                        color: FB_BACKGROUND_LIGHT,
+                                        color: fbBackgroundLight,
                                       ),
                                       recognizer: TapGestureRecognizer()
                                         ..onTap = () => Navigator.pushNamed(
@@ -272,7 +272,7 @@ class _LogInScreenState extends State<LogInScreen> {
                                     style: TextStyle(
                                       fontWeight: FontWeight.bold,
                                       fontSize: 13.sp,
-                                      color: FB_BACKGROUND_LIGHT,
+                                      color: fbBackgroundLight,
                                     ),
                                     recognizer: TapGestureRecognizer()
                                       ..onTap = () => Navigator.pushNamed(

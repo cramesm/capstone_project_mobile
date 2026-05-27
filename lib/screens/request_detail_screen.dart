@@ -28,20 +28,16 @@ class RequestDetailsScreen extends StatelessWidget {
       backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
         backgroundColor: const Color(0xFF5D7E97),
-        title: const Text("Information of the Request", style: TextStyle(color: FB_TEXT_COLOR_WHITE)),
+        title: const Text(
+          "Information of the Request",
+          style: TextStyle(color: fbTextColorWhite),
+        ),
         leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white), onPressed: () => Navigator.pop(context)),
       ),
       body: SingleChildScrollView(
         padding: EdgeInsets.all(20.w),
         child: Column(
           children: [
-            _buildSectionCard("Student Information", [
-              _buildInfoRow("Name:", "Alyssa Cruz"),
-              _buildInfoRow("Student ID:", "2024-123346"),
-              _buildInfoRow("Program:", "BSIT-MWA"),
-              _buildInfoRow("Email:", "alyssac@school.edu.ph"),
-            ]),
-            SizedBox(height: 15.h),
             _buildSectionCard("Document Details", [
               _buildInfoRow("Type of Document:", request.docName),
               _buildInfoRow("Purpose of Request:", request.purpose),
@@ -72,14 +68,10 @@ class RequestDetailsScreen extends StatelessWidget {
                 "Document Price:",
                 _amountLabel(request.documentPrice),
               ),
-              _buildInfoRow(
-                "Processing Fee:",
-                _amountLabel(request.processingFee),
-              ),
               const Divider(),
               _buildInfoRow(
                 "Total Amount Due:",
-                _amountLabel(request.totalAmount),
+                _amountLabel(request.documentPrice),
                 isBold: true,
               ),
               SizedBox(height: 15.h),
@@ -113,7 +105,7 @@ class RequestDetailsScreen extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(10.r),
-        boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 5)],
+        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 5)],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

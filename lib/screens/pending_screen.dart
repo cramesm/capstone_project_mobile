@@ -11,7 +11,6 @@ class PendingRequest {
   final DateTime dateCreated;
   final String status; // e.g., "PENDING", "APPROVED", "RELEASED"
   final double documentPrice;
-  final double processingFee;
   final double totalAmount;
 
   PendingRequest({
@@ -19,12 +18,9 @@ class PendingRequest {
     required this.purpose,
     required this.dateCreated,
     required this.status,
-    double documentPrice = 0,
-    double processingFee = 0,
+    this.documentPrice = 0,
     double? totalAmount,
-  })  : documentPrice = documentPrice,
-        processingFee = processingFee,
-        totalAmount = totalAmount ?? (documentPrice + processingFee);
+  }) : totalAmount = totalAmount ?? documentPrice;
 }
 
 
@@ -122,7 +118,7 @@ class _PendingScreenState extends State<PendingScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12.r),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5)],
+        boxShadow: [BoxShadow(color: Colors.black.withAlpha(13), blurRadius: 5)],
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -142,7 +138,7 @@ class _PendingScreenState extends State<PendingScreen> {
           Container(
             padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h),
             decoration: BoxDecoration(
-              color: _getStatusColor(item.status).withOpacity(0.2),
+              color: _getStatusColor(item.status).withAlpha(51),
               borderRadius: BorderRadius.circular(20.r),
             ),
             child: Text(item.status, 

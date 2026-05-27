@@ -52,13 +52,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     // Colors based on your theme
-    final Color headerBlue = const Color(0xFF5D7E97);
-    final Color darkNavy = const Color(0xFF233446);
+    const Color headerBlue = Color(0xFF5D7E97);
+    const Color darkNavy = Color(0xFF233446);
 
     if (_isLoading) {
-      return Scaffold(
+      return const Scaffold(
         backgroundColor: Colors.white,
-        body: const Center(child: CircularProgressIndicator()),
+        body: Center(child: CircularProgressIndicator()),
       );
     }
 
@@ -208,6 +208,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     builder: (context) => EditProfileScreen(profile: profile),
                   ),
                 );
+                if (!context.mounted) return;
                 if (updated != null) {
                   setState(() {
                     _profile = updated;
@@ -233,6 +234,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ElevatedButton(
               onPressed: () async {
                 await MongoDataApiService.instance.logout();
+                if (!context.mounted) return;
                 Navigator.of(context)
                     .pushNamedAndRemoveUntil('/choose', (route) => false);
               },

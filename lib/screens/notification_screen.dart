@@ -46,7 +46,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        backgroundColor: FB_PRIMARY,
+        backgroundColor: fbPrimary,
         foregroundColor: Colors.white,
         title: const Text('Notifications'),
         elevation: 0,
@@ -65,7 +65,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
                   child: Text(
                     'Mark All Read',
                     style: TextStyle(
-                      color: FB_PRIMARY,
+                      color: fbPrimary,
                       fontSize: 14.sp,
                       fontWeight: FontWeight.w600,
                     ),
@@ -152,7 +152,7 @@ class FilterTab extends StatelessWidget {
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 8.h),
         decoration: BoxDecoration(
-          color: isActive ? FB_PRIMARY : Colors.white,
+          color: isActive ? fbPrimary : Colors.white,
           borderRadius: BorderRadius.circular(20.r),
           border: isActive
               ? null
@@ -191,7 +191,7 @@ class NotificationItemCard extends StatelessWidget {
         border: Border.all(color: Colors.grey.shade200),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withAlpha(13),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),
@@ -209,7 +209,7 @@ class NotificationItemCard extends StatelessWidget {
                 height: 8.h,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: item.isRead ? Colors.transparent : FB_PRIMARY,
+                  color: item.isRead ? Colors.transparent : fbPrimary,
                 ),
               ),
               SizedBox(width: 12.w),

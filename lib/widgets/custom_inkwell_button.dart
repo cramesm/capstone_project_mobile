@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 // ignore: must_be_immutable
 class CustomInkwellButton extends StatelessWidget {
-  final onTap;
+  final VoidCallback onTap;
   final double height;
   final double width;
   final double fontSize;
@@ -20,7 +20,7 @@ class CustomInkwellButton extends StatelessWidget {
       required this.height,
       required this.width,
       this.buttonName = '',
-      this.bgColor = FB_DARK_PRIMARY,
+      this.bgColor = fbDarkPrimary,
       this.fontColor = Colors.white,
       this.fontSize = 1,
       this.icon = const Icon(null),
@@ -35,7 +35,7 @@ class CustomInkwellButton extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: const BorderRadius.all(Radius.circular(10)),
-        splashColor: FB_SECONDARY,
+        splashColor: fbSecondary,
         child: Container(
           height: height,
           width: width,

@@ -156,24 +156,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
         program: program,
       );
 
-      final loggedIn = await MongoDataApiService.instance.login(
-        email: email,
-        password: pass,
-      );
-
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Account created successfully!")),
       );
 
-      if (!loggedIn) {
-        _showValidationAlert("Account created. Please log in to continue.");
-        Navigator.pop(context);
-        return;
-      }
-
-      Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
+      _showValidationAlert("Account created. Please log in to continue.");
+      Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
     } catch (e) {
       if (!mounted) return;
       _showValidationAlert(e.toString().replaceFirst('Exception: ', ''));
@@ -216,15 +206,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
             focusNode: node,
             validator: validator,
             keyboardType: keyboardType,
-            cursorColor: FB_DARK_PRIMARY,
-            style: TextStyle(fontSize: 14.sp, color: FB_DARK_PRIMARY),
+            cursorColor: fbDarkPrimary,
+            style: TextStyle(fontSize: 14.sp, color: fbDarkPrimary),
             decoration: InputDecoration(
               filled: true,
               fillColor: Colors.white,
               hintText: hintText,
               hintStyle: TextStyle(
                 fontSize: 14.sp,
-                color: FB_DARK_PRIMARY.withOpacity(0.75),
+                color: fbDarkPrimary.withAlpha(191),
               ),
               contentPadding:
                   EdgeInsets.symmetric(horizontal: 16.w, vertical: 14.h),
@@ -322,7 +312,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             child: Container(
               width: double.infinity,
               decoration: BoxDecoration(
-                color: FB_PRIMARY,
+                color: fbPrimary,
                 borderRadius: BorderRadius.only(
                   topLeft: Radius.circular(30.r),
                   topRight: Radius.circular(30.r),
@@ -354,7 +344,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           hintText: 'First Name',
                           fontSize: 14.sp,
                           hintTextSize: 14.sp,
-                          fontColor: FB_DARK_PRIMARY,
+                          fontColor: fbDarkPrimary,
                           bgColor: Colors.white,
                           validator: (value) {
                             final input = value?.trim() ?? '';
@@ -375,7 +365,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           hintText: 'Last Name',
                           fontSize: 14.sp,
                           hintTextSize: 14.sp,
-                          fontColor: FB_DARK_PRIMARY,
+                          fontColor: fbDarkPrimary,
                           bgColor: Colors.white,
                           validator: (value) {
                             final input = value?.trim() ?? '';
@@ -397,7 +387,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           keyboardType: TextInputType.emailAddress,
                           fontSize: 14.sp,
                           hintTextSize: 14.sp,
-                          fontColor: FB_DARK_PRIMARY,
+                          fontColor: fbDarkPrimary,
                           bgColor: Colors.white,
                           validator: (value) {
                             final email = value?.trim() ?? '';
@@ -450,7 +440,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           hintText: 'Confirm Password',
                           fontSize: 14.sp,
                           hintTextSize: 14.sp,
-                          fontColor: FB_DARK_PRIMARY,
+                          fontColor: fbDarkPrimary,
                           bgColor: Colors.white,
                           suffixIcon: IconButton(
                             padding: EdgeInsets.zero,
@@ -458,7 +448,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               _isConfirmPasswordObscure
                                   ? Icons.visibility_off
                                   : Icons.visibility,
-                              color: FB_DARK_PRIMARY,
+                              color: fbDarkPrimary,
                               size: 20.sp,
                             ),
                             onPressed: () {
@@ -486,7 +476,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           hintText: 'Password',
                           fontSize: 14.sp,
                           hintTextSize: 14.sp,
-                          fontColor: FB_DARK_PRIMARY,
+                          fontColor: fbDarkPrimary,
                           bgColor: Colors.white,
                           suffixIcon: IconButton(
                             padding: EdgeInsets.zero,
@@ -494,7 +484,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               _isPasswordObscure
                                   ? Icons.visibility_off
                                   : Icons.visibility,
-                              color: FB_DARK_PRIMARY,
+                              color: fbDarkPrimary,
                               size: 20.sp,
                             ),
                             onPressed: () {
@@ -526,7 +516,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             Checkbox(
                               value: _acceptedTerms,
                               side: const BorderSide(color: Colors.white70),
-                              checkColor: FB_DARK_PRIMARY,
+                              checkColor: fbDarkPrimary,
                               fillColor:
                                   WidgetStateProperty.all(Colors.white),
                               onChanged: (value) {
@@ -556,7 +546,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           buttonName: _isSubmitting ? 'Registering...' : 'Register',
                           fontSize: 24.sp,
                           fontWeight: FontWeight.bold,
-                          bgColor: FB_DARK_PRIMARY,
+                          bgColor: fbDarkPrimary,
                           fontColor: Colors.white,
                         ),
                         SizedBox(height: 20.h),
@@ -578,7 +568,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                   style: TextStyle(
                                     fontWeight: FontWeight.bold,
                                     fontSize: 13.sp,
-                                    color: FB_BACKGROUND_LIGHT,
+                                    color: fbBackgroundLight,
                                   ),
                                   recognizer: TapGestureRecognizer()
                                     ..onTap = () => Navigator.pop(context),

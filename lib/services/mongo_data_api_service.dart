@@ -4,9 +4,12 @@ import 'dart:typed_data';
 import 'package:capstone_project/constants.dart';
 import 'package:capstone_project/models/profile_data.dart';
 import 'package:http/http.dart' as http;
+import 'token_storage.dart';
 
 class MongoDataApiService {
-  MongoDataApiService._();
+  MongoDataApiService._() {
+    _init();
+  }
 
   static final MongoDataApiService instance = MongoDataApiService._();
   static const Duration _timeout = Duration(seconds: 12);
@@ -15,8 +18,9 @@ class MongoDataApiService {
   String? _refreshToken;
   String? _currentEmail;
   DateTime? _accessTokenExpiresAt;
+  final TokenStorage _storage = TokenStorage();
 
-  Uri _uri(String path) => Uri.parse('$AUTH_API_BASE_URL$path');
+  Uri _uri(String path) => Uri.parse('$authApiBaseUrl$path');
 
   bool get hasSession => _accessToken != null && _refreshToken != null;
   String? get accessToken => _accessToken;
@@ -27,15 +31,42 @@ class MongoDataApiService {
     return {'Authorization': 'Bearer $_accessToken'};
   }
 
+  void _init() {
+    // Fire-and-forget load of persisted tokens
+    _loadStoredSession();
+  }
+
+  Future<void> _loadStoredSession() async {
+    try {
+      final a = await _storage.readAccessToken();
+      final r = await _storage.readRefreshToken();
+      final eMillis = await _storage.readExpiryMillis();
+      final email = await _storage.readEmail();
+
+      if (a != null && r != null) {
+        _accessToken = a;
+        _refreshToken = r;
+        if (eMillis != null) {
+          _accessTokenExpiresAt = DateTime.fromMillisecondsSinceEpoch(eMillis);
+        }
+        if (email != null && email.trim().isNotEmpty) {
+          _currentEmail = email.trim();
+        }
+      }
+    } catch (_) {}
+  }
+
   Future<_ApiResponse> _postJson(
     String path,
     Map<String, dynamic> body, {
     bool withAuth = false,
+    bool retrying = false,
   }) async {
     final headers = <String, String>{
       'Content-Type': 'application/json',
     };
     if (withAuth) {
+      await _ensureValidSession();
       headers.addAll(authHeaders());
     }
 
@@ -47,17 +78,32 @@ class MongoDataApiService {
         )
         .timeout(_timeout);
 
+    if (withAuth && response.statusCode == 401 && !retrying) {
+      await _refreshOrThrow();
+      return _postJson(path, body, withAuth: true, retrying: true);
+    }
+
     return _decodeResponse(response);
   }
 
-  Future<_ApiResponse> _getJson(String path, {bool withAuth = false}) async {
+  Future<_ApiResponse> _getJson(
+    String path, {
+    bool withAuth = false,
+    bool retrying = false,
+  }) async {
     final headers = <String, String>{};
     if (withAuth) {
+      await _ensureValidSession();
       headers.addAll(authHeaders());
     }
 
     final response =
         await http.get(_uri(path), headers: headers).timeout(_timeout);
+    if (withAuth && response.statusCode == 401 && !retrying) {
+      await _refreshOrThrow();
+      return _getJson(path, withAuth: true, retrying: true);
+    }
+
     return _decodeResponse(response);
   }
 
@@ -65,11 +111,13 @@ class MongoDataApiService {
     String path,
     Map<String, dynamic> body, {
     bool withAuth = false,
+    bool retrying = false,
   }) async {
     final headers = <String, String>{
       'Content-Type': 'application/json',
     };
     if (withAuth) {
+      await _ensureValidSession();
       headers.addAll(authHeaders());
     }
 
@@ -80,6 +128,17 @@ class MongoDataApiService {
           body: jsonEncode(body),
         )
         .timeout(_timeout);
+    if (withAuth && response.statusCode == 401 && !retrying) {
+      await _refreshOrThrow();
+      return _putJson(path, body, withAuth: true, retrying: true);
+    }
+
+    return _decodeResponse(response);
+  }
+
+  Future<_ApiResponse> _sendMultipart(http.MultipartRequest request) async {
+    final streamed = await request.send().timeout(_timeout);
+    final response = await http.Response.fromStream(streamed);
     return _decodeResponse(response);
   }
 
@@ -111,6 +170,8 @@ class MongoDataApiService {
     _refreshToken = null;
     _currentEmail = null;
     _accessTokenExpiresAt = null;
+    // clear persisted tokens as well
+    _storage.clear();
   }
 
   void _applySession(Map<String, dynamic> data, {String? emailFallback}) {
@@ -141,6 +202,38 @@ class MongoDataApiService {
     if (expiresIn is num) {
       _accessTokenExpiresAt =
           DateTime.now().add(Duration(seconds: expiresIn.toInt()));
+    }
+    // persist tokens
+    _storage.writeAccessToken(_accessToken!);
+    _storage.writeRefreshToken(_refreshToken!);
+    if (_accessTokenExpiresAt != null) {
+      _storage.writeExpiryMillis(_accessTokenExpiresAt!.millisecondsSinceEpoch);
+    }
+    if (_currentEmail != null) {
+      _storage.writeEmail(_currentEmail!);
+    }
+  }
+
+  Future<void> _refreshOrThrow() async {
+    try {
+      await refreshSession();
+    } catch (_) {
+      _clearSession();
+      throw Exception('Session expired. Please log in again.');
+    }
+  }
+
+  Future<void> _ensureValidSession() async {
+    if (_accessToken == null) {
+      throw Exception('Not authenticated.');
+    }
+
+    if (_accessTokenExpiresAt != null) {
+      final refreshAt = _accessTokenExpiresAt!
+          .subtract(const Duration(seconds: 30));
+      if (DateTime.now().isAfter(refreshAt)) {
+        await _refreshOrThrow();
+      }
     }
   }
 
@@ -193,7 +286,7 @@ class MongoDataApiService {
 
     if (response.statusCode == 200 && response.data['success'] == true) {
       final otp = response.data['otp'];
-      return otp == null ? null : otp.toString();
+      return otp?.toString();
     }
 
     throw Exception(_messageFor(response.data, 'Failed to request OTP.'));
@@ -297,7 +390,7 @@ class MongoDataApiService {
     final email = _currentEmail;
     final refreshToken = _refreshToken;
 
-    if (email == null || email.isEmpty || refreshToken == null) {
+    if ((email?.isEmpty ?? true) || refreshToken == null) {
       throw Exception('No refresh session available.');
     }
 
@@ -340,36 +433,42 @@ class MongoDataApiService {
     double? amount,
     String? status,
   }) async {
-    if (_accessToken == null) {
-      throw Exception('Not authenticated.');
+    await _ensureValidSession();
+
+    Future<_ApiResponse> sendRequest() async {
+      final request =
+          http.MultipartRequest('POST', _uri('/payments/receipt'));
+      request.headers.addAll(authHeaders());
+      request.fields['paymentType'] = paymentType;
+      request.fields['docName'] = docName;
+      request.fields['purpose'] = purpose;
+      if (amount != null) {
+        request.fields['amount'] = amount.toStringAsFixed(2);
+      }
+      if (status != null && status.trim().isNotEmpty) {
+        request.fields['status'] = status.trim();
+      }
+
+      final safeName =
+          fileName.trim().isEmpty ? 'receipt.jpg' : fileName.trim();
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'receipt',
+          bytes,
+          filename: safeName,
+        ),
+      );
+
+      return _sendMultipart(request);
     }
 
-    final request = http.MultipartRequest('POST', _uri('/payments/receipt'));
-    request.headers.addAll(authHeaders());
-    request.fields['paymentType'] = paymentType;
-    request.fields['docName'] = docName;
-    request.fields['purpose'] = purpose;
-    if (amount != null) {
-      request.fields['amount'] = amount.toStringAsFixed(2);
-    }
-    if (status != null && status.trim().isNotEmpty) {
-      request.fields['status'] = status.trim();
+    var decoded = await sendRequest();
+    if (decoded.statusCode == 401) {
+      await _refreshOrThrow();
+      decoded = await sendRequest();
     }
 
-    final safeName = fileName.trim().isEmpty ? 'receipt.jpg' : fileName.trim();
-    request.files.add(
-      http.MultipartFile.fromBytes(
-        'receipt',
-        bytes,
-        filename: safeName,
-      ),
-    );
-
-    final streamed = await request.send().timeout(_timeout);
-    final response = await http.Response.fromStream(streamed);
-    final decoded = _decodeResponse(response);
-
-    if (response.statusCode == 201 && decoded.data['success'] == true) {
+    if (decoded.statusCode == 201 && decoded.data['success'] == true) {
       return decoded.data;
     }
 
@@ -380,27 +479,32 @@ class MongoDataApiService {
     required Uint8List bytes,
     required String fileName,
   }) async {
-    if (_accessToken == null) {
-      throw Exception('Not authenticated.');
+    await _ensureValidSession();
+
+    Future<_ApiResponse> sendRequest() async {
+      final request = http.MultipartRequest('POST', _uri('/profile/photo'));
+      request.headers.addAll(authHeaders());
+
+      final safeName =
+          fileName.trim().isEmpty ? 'profile.jpg' : fileName.trim();
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          'photo',
+          bytes,
+          filename: safeName,
+        ),
+      );
+
+      return _sendMultipart(request);
     }
 
-    final request = http.MultipartRequest('POST', _uri('/profile/photo'));
-    request.headers.addAll(authHeaders());
+    var decoded = await sendRequest();
+    if (decoded.statusCode == 401) {
+      await _refreshOrThrow();
+      decoded = await sendRequest();
+    }
 
-    final safeName = fileName.trim().isEmpty ? 'profile.jpg' : fileName.trim();
-    request.files.add(
-      http.MultipartFile.fromBytes(
-        'photo',
-        bytes,
-        filename: safeName,
-      ),
-    );
-
-    final streamed = await request.send().timeout(_timeout);
-    final response = await http.Response.fromStream(streamed);
-    final decoded = _decodeResponse(response);
-
-    if (response.statusCode == 201 && decoded.data['success'] == true) {
+    if (decoded.statusCode == 201 && decoded.data['success'] == true) {
       final user = decoded.data['profile'];
       if (user is Map<String, dynamic>) {
         final email = user['email'];
@@ -474,26 +578,18 @@ class MongoDataApiService {
     required String docName,
     required String purpose,
   }) async {
-    if (_accessToken == null) {
-      throw Exception('Not authenticated.');
-    }
-
-    final params = <String, String>{
-      'docName': docName.trim(),
-      'purpose': purpose.trim(),
-    };
-    final uri = _uri('/receipts').replace(queryParameters: params);
-    final response = await http.get(uri, headers: authHeaders()).timeout(_timeout);
-    final decoded = _decodeResponse(response);
-    if (response.statusCode == 200 && decoded.data['success'] == true) {
-      final receipt = decoded.data['receipt'];
+    final query =
+        'docName=${Uri.encodeQueryComponent(docName.trim())}&purpose=${Uri.encodeQueryComponent(purpose.trim())}';
+    final response = await _getJson('/receipts?$query', withAuth: true);
+    if (response.statusCode == 200 && response.data['success'] == true) {
+      final receipt = response.data['receipt'];
       if (receipt is Map) {
         return Map<String, dynamic>.from(receipt);
       }
       return null;
     }
 
-    throw Exception(_messageFor(decoded.data, 'Failed to load receipt.'));
+    throw Exception(_messageFor(response.data, 'Failed to load receipt.'));
   }
 
   Future<List<Map<String, dynamic>>> fetchNotifications({int limit = 50}) async {
@@ -551,7 +647,7 @@ class MongoDataApiService {
 
     if (response.statusCode == 200 && response.data['success'] == true) {
       final otp = response.data['otp'];
-      return otp == null ? null : otp.toString();
+      return otp?.toString();
     }
 
     throw Exception(

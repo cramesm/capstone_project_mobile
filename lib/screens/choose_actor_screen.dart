@@ -41,7 +41,7 @@ class ChooseActorScreen extends StatelessWidget {
             child: Container(
               width: double.infinity,
               decoration: BoxDecoration(
-                color: FB_PRIMARY,
+                color: fbPrimary,
                 borderRadius: BorderRadius.only(
                   topLeft: Radius.circular(30.r),
                   topRight: Radius.circular(30.r),
@@ -71,8 +71,8 @@ class ChooseActorScreen extends StatelessWidget {
                     buttonName: 'STUDENT',
                     fontSize: 22.sp,
                     fontWeight: FontWeight.bold,
-                    bgColor: FB_BACKGROUND_LIGHT,
-                    fontColor: FB_DARK_PRIMARY, // Dark navy text
+                    bgColor: fbBackgroundLight,
+                    fontColor: fbDarkPrimary, // Dark navy text
                     onTap: () {
                       Navigator.pushReplacement(
                         context,
@@ -92,8 +92,8 @@ class ChooseActorScreen extends StatelessWidget {
                     buttonName: 'ALUMNI',
                     fontSize: 22.sp,
                     fontWeight: FontWeight.bold,
-                    bgColor: FB_BACKGROUND_LIGHT,
-                    fontColor: FB_DARK_PRIMARY,
+                    bgColor: fbBackgroundLight,
+                    fontColor: fbDarkPrimary,
                     onTap: () {
                       Navigator.pushReplacement(
                         context,

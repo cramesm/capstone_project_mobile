@@ -31,19 +31,8 @@ class _PaymentDetailsScreenState extends State<PaymentDetailsScreen> {
         padding: EdgeInsets.all(20.w),
         child: Column(
           children: [
-            _buildSectionCard("Student Information", [
-              _infoRow("Name", "Alyssa Cruz"),
-              _infoRow("Student ID", "2024-123346"),
-              _infoRow("Program", "BSIT-MWA"),
-              _infoRow("Email", "alyssac@school.edu.ph"),
-            ]),
-            SizedBox(height: 15.h),
             _buildSectionCard("Billing Summary", [
               _infoRow("Document Requested", widget.request.docName),
-              _infoRow(
-                "Processing Fee",
-                _amountLabel(widget.request.processingFee),
-              ),
               _infoRow(
                 "Document Price",
                 _amountLabel(widget.request.documentPrice),
@@ -51,7 +40,7 @@ class _PaymentDetailsScreenState extends State<PaymentDetailsScreen> {
               const Divider(),
               _infoRow(
                 "Total Amount Due",
-                _amountLabel(widget.request.totalAmount),
+                _amountLabel(widget.request.documentPrice),
                 isBold: true,
               ),
             ]),
@@ -68,7 +57,8 @@ class _PaymentDetailsScreenState extends State<PaymentDetailsScreen> {
               SizedBox(height: 8.h),
               Center(
                 child: CustomFont(
-                  text: "Scan to pay ${_amountLabel(widget.request.totalAmount)}",
+                  text:
+                      "Scan to pay ${_amountLabel(widget.request.documentPrice)}",
                   fontSize: 12.sp,
                   color: Colors.black54,
                 ),
@@ -118,7 +108,13 @@ class _PaymentDetailsScreenState extends State<PaymentDetailsScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12.r),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(13),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          )
+        ],
         border: Border.all(color: Colors.grey.shade100),
       ),
       child: Column(

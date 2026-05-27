@@ -215,11 +215,10 @@ class _HomeScreenState extends State<HomeScreen> {
         final createdAt = _parseRequestDate(item['createdAt']);
         final status = _displayStatus(statusRaw);
         final documentPrice = _parseAmount(item['documentPrice']);
-        final processingFee = _parseAmount(item['processingFee']);
         final totalAmount = _parseAmount(item['totalAmount']);
         final resolvedTotal = totalAmount > 0
           ? totalAmount
-          : documentPrice + processingFee;
+          : documentPrice;
 
         if (!_isCompletedStatus(statusRaw)) {
           pending.add(PendingRequest(
@@ -228,7 +227,6 @@ class _HomeScreenState extends State<HomeScreen> {
             dateCreated: createdAt,
             status: status,
             documentPrice: documentPrice,
-            processingFee: processingFee,
             totalAmount: resolvedTotal,
           ));
         }
@@ -362,12 +360,12 @@ class _HomeScreenState extends State<HomeScreen> {
         alignment: Alignment.center,
         height: 80.h,
         decoration: BoxDecoration(
-          color: isSelected ? FB_PRIMARY : Colors.transparent,
+          color: isSelected ? fbPrimary : Colors.transparent,
           borderRadius: BorderRadius.circular(10.r),
         ),
         child: Icon(
           isSelected ? activeIcon : icon,
-          color: isSelected ? Colors.white : FB_DARK_PRIMARY,
+          color: isSelected ? Colors.white : fbDarkPrimary,
           size: 28.sp,
         ),
       ),
@@ -375,29 +373,58 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildHomeContent(BuildContext context) {
+    final pendingCount = _pendingRequests.length;
+    final historyCount = _historyItems.length;
+
     return SingleChildScrollView(
       child: Column(
         children: [
-          Stack(
-            clipBehavior: Clip.none, // Allows the card to overlap the header
-            children: [
-              // Top Section: Header with Welcome Text
-              Container(
-                height: 220.h,
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: FB_PRIMARY,
-                  borderRadius: BorderRadius.vertical(
-                    bottom: Radius.circular(30.r),
+          Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF1B3B57), Color(0xFF467599)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.vertical(
+                bottom: Radius.circular(28.r),
+              ),
+            ),
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Positioned(
+                  top: -40.h,
+                  right: -30.w,
+                  child: Container(
+                    width: 140.r,
+                    height: 140.r,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withAlpha(20),
+                      shape: BoxShape.circle,
+                    ),
                   ),
                 ),
-                child: SafeArea(
-                  child: Column(
-                    children: [
-                      Padding(
-                        padding:
-                            EdgeInsets.symmetric(horizontal: 20.w, vertical: 10.h),
-                        child: Row(
+                Positioned(
+                  bottom: -60.h,
+                  left: -20.w,
+                  child: Container(
+                    width: 180.r,
+                    height: 180.r,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withAlpha(13),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+                SafeArea(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(20.w, 14.h, 20.w, 24.h),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             GestureDetector(
@@ -411,7 +438,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     child: Icon(
                                       Icons.notifications,
                                       size: 22.sp,
-                                      color: FB_PRIMARY,
+                                      color: fbPrimary,
                                     ),
                                   ),
                                   if (_unreadCount > 0)
@@ -425,7 +452,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                         ),
                                         decoration: BoxDecoration(
                                           color: Colors.red,
-                                          borderRadius: BorderRadius.circular(12.r),
+                                          borderRadius:
+                                              BorderRadius.circular(12.r),
                                         ),
                                         child: Text(
                                           _unreadCount > 99
@@ -455,131 +483,197 @@ class _HomeScreenState extends State<HomeScreen> {
                                 child: Icon(
                                   Icons.person,
                                   size: 22.sp,
-                                  color: FB_PRIMARY,
+                                  color: fbPrimary,
                                 ),
                               ),
                             ),
                           ],
                         ),
-                      ),
-                      Text(
-                        "Welcome to VerifiTOR",
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 32.sp,
-                          fontWeight: FontWeight.bold,
+                        SizedBox(height: 20.h),
+                        Text(
+                          "Welcome back",
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 14.sp,
+                            fontFamily: 'Frutiger',
+                            letterSpacing: 0.6,
+                          ),
                         ),
+                        SizedBox(height: 6.h),
+                        Text(
+                          "VerifiTOR",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 34.sp,
+                            fontFamily: 'Klavika',
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                        SizedBox(height: 6.h),
+                        Text(
+                          "Track requests, payments, and releases in one place.",
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 13.sp,
+                            fontFamily: 'Frutiger',
+                          ),
+                        ),
+                        SizedBox(height: 18.h),
+                        Row(
+                          children: [
+                            _buildStatPill(
+                              label: 'Pending',
+                              value: pendingCount.toString(),
+                              color: const Color(0xFFFFC857),
+                            ),
+                            SizedBox(width: 10.w),
+                            _buildStatPill(
+                              label: 'History',
+                              value: historyCount.toString(),
+                              color: const Color(0xFF7BD389),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: 20.w, vertical: 10.h),
+            child: Container(
+              width: double.infinity,
+              padding: EdgeInsets.all(22.r),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(18.r),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withAlpha(20),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 56.r,
+                        height: 56.r,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEEF4F8),
+                          borderRadius: BorderRadius.circular(16.r),
+                        ),
+                        child:
+                            const Icon(Icons.add_task, color: Color(0xFF1B3B57)),
                       ),
-                      Text(
-                        "\u201cInnovation in Every Credentials\u201d",
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 16.sp,
-                          fontStyle: FontStyle.italic,
+                      SizedBox(width: 16.w),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "Make a request",
+                              style: TextStyle(
+                                fontSize: 18.sp,
+                                fontWeight: FontWeight.w700,
+                                fontFamily: 'Klavika',
+                              ),
+                            ),
+                            SizedBox(height: 6.h),
+                            Text(
+                              "Submit documents in under 2 minutes.",
+                              style: TextStyle(
+                                fontSize: 12.sp,
+                                color: Colors.black54,
+                                fontFamily: 'Frutiger',
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
                   ),
-                ),
-              ),
-
-            ],
-          ),
-
-          // Spacing between header and content
-          SizedBox(height: 12.h),
-
-          // REQUEST BUTTON
-          Padding(
-            padding: EdgeInsets.only(bottom: 30.h),
-            child: ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF1B2E3C), // Dark Navy from image
-                padding: EdgeInsets.symmetric(horizontal: 60.w, vertical: 15.h),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(15.r),
-                ),
-                elevation: 5,
-              ),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const DataConsentScreen(),
-                  ),
-                );
-              },
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    "REQUEST",
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 22.sp,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  SizedBox(width: 20.w),
-                  Icon(Icons.arrow_forward, color: Colors.white, size: 24.sp),
-                ],
-              ),
-            ),
-          ),
-
-          // Document Price List Section (Carousel)
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: 20.w),
-            child: Container(
-              padding: EdgeInsets.symmetric(vertical: 20.h),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(10.r),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 10,
-                  )
-                ],
-              ),
-              child: Column(
-                children: [
-                  Text(
-                    "Document Requests Price List",
-                    style:
-                        TextStyle(fontSize: 18.sp, fontWeight: FontWeight.bold),
-                  ),
-                  SizedBox(height: 10.h),
+                  SizedBox(height: 18.h),
                   SizedBox(
-                    height: 300.h, // Height for your table image
-                    child: PageView(
-                      controller: PageController(viewportFraction: 0.9),
-                      children: [
-                        _buildCarouselImage('assets/image/docs_prices.png'),
-                        _buildCarouselImage('assets/image/codelectives.jpg'),
-                      ],
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const DataConsentScreen(),
+                          ),
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF1B2E3C),
+                        elevation: 0,
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 20.w,
+                          vertical: 14.h,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14.r),
+                        ),
+                      ),
+                      child: Text(
+                        "Make Request",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 14.sp,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
           ),
-          SizedBox(height: 20.h),
         ],
       ),
     );
   }
 
-  Widget _buildCarouselImage(String path) {
+  Widget _buildStatPill({
+    required String label,
+    required String value,
+    required Color color,
+  }) {
     return Container(
-      margin: EdgeInsets.symmetric(horizontal: 10.w),
+      padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10.r),
-        image: DecorationImage(
-          image: AssetImage(path),
-          fit: BoxFit.contain,
-        ),
+        color: Colors.white.withAlpha(31),
+        borderRadius: BorderRadius.circular(18.r),
+        border: Border.all(color: Colors.white.withAlpha(51)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 8.r,
+            height: 8.r,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          SizedBox(width: 6.w),
+          Text(
+            "$label: $value",
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 12.sp,
+              fontFamily: 'Frutiger',
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ),
     );
   }
+
 }
