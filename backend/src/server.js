@@ -609,6 +609,7 @@ function buildReceiptRecord({
   paymentType,
   docName,
   purpose,
+  trueRequestId,
   amount,
   status,
   imageUrl,
@@ -618,6 +619,21 @@ function buildReceiptRecord({
   size,
 }) {
   return {
+    transactionId: `TXN-${Date.now()}`,
+    transactionHash: `hash-${Date.now()}-${Math.round(Math.random() * 1e9)}`,
+    requestId: trueRequestId || purpose, // Maps real requestId to link accurately
+    name: `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),
+    documentType: docName || '',
+    paymentMode: paymentType === 'onsite' ? 'Other Online Payment' : 'GCash',
+    amount: amount ? amount.toString() : '0.00',
+    receiptImage: imageUrl || '',
+    payerName: `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),
+    payerEmail: user?.email || '',
+    payerType: user?.role === 'alumni' ? 'Alumni' : 'Student',
+    status: 'Pending Verification',
+    date: new Date(),
+
+    // Legacy mobile fields
     userId: user?._id || user?.id,
     email: user?.email || '',
     firstName: user?.firstName || '',
@@ -625,10 +641,10 @@ function buildReceiptRecord({
     paymentType: paymentType || '',
     docName: docName || '',
     purpose: purpose || '',
-    amount,
-    status,
-    imageUrl,
-    publicId,
+    originalAmount: amount,
+    mobileStatus: status,
+    imageUrl: imageUrl,
+    publicId: publicId || '',
     originalName,
     mimeType,
     size,
@@ -654,7 +670,22 @@ function buildReceiptResponse(record) {
 
 async function uploadReceiptToCloudinary(file) {
   if (!cloudinaryEnabled) {
-    throw new Error('Cloudinary is not configured.');
+    // Fallback to local upload in the web backend directory
+    const fileName = `receipt-${Date.now()}-${Math.round(Math.random() * 1e9)}${path.extname(file.originalname)}`;
+    const uploadDir = 'c:\\Users\\Sarah\\VeriFitorWeb\\Verifitor-Web-main\\backend\\uploads\\receipts';
+    
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    
+    const filePath = path.join(uploadDir, fileName);
+    await fs.promises.writeFile(filePath, file.buffer);
+    
+    return {
+      secure_url: `/uploads/receipts/${fileName}`,
+      url: `/uploads/receipts/${fileName}`,
+      public_id: `local-${fileName}`
+    };
   }
   if (!file?.buffer) {
     throw new Error('Receipt image is required.');
@@ -681,7 +712,22 @@ async function uploadReceiptToCloudinary(file) {
 
 async function uploadProfilePhotoToCloudinary(file) {
   if (!cloudinaryEnabled) {
-    throw new Error('Cloudinary is not configured.');
+    // Fallback to local upload in the web backend directory
+    const fileName = `profile-${Date.now()}-${Math.round(Math.random() * 1e9)}${path.extname(file.originalname)}`;
+    const uploadDir = 'c:\\Users\\Sarah\\VeriFitorWeb\\Verifitor-Web-main\\backend\\uploads\\profiles';
+    
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    
+    const filePath = path.join(uploadDir, fileName);
+    await fs.promises.writeFile(filePath, file.buffer);
+    
+    return {
+      secure_url: `/uploads/profiles/${fileName}`,
+      url: `/uploads/profiles/${fileName}`,
+      public_id: `local-${fileName}`
+    };
   }
   if (!file?.buffer) {
     throw new Error('Profile photo is required.');
@@ -904,7 +950,8 @@ async function updateRequestStatusForPayment({
   if (!userId || !docName || !purpose) return null;
 
   const updates = {
-    status: 'pending',
+    status: 'Pending',
+    mobileStatus: 'pending',
     paymentType,
     updatedAt: new Date().toISOString(),
   };
@@ -959,7 +1006,7 @@ function buildRequestResponse(record) {
     requestId: record.requestId ? String(record.requestId) : '',
     docName: record.docName || '',
     purpose: record.purpose || '',
-    status: record.status || 'pending',
+    status: record.mobileStatus || record.status || 'pending',
     createdAt: record.createdAt || new Date().toISOString(),
     updatedAt: record.updatedAt || record.createdAt || new Date().toISOString(),
     email: record.email || '',
@@ -990,7 +1037,8 @@ async function listRequestsForUser(user, statuses) {
   if (dbEnabled) {
     const query = { userId };
     if (statuses && statuses.length > 0) {
-      query.status = { $in: statuses };
+      const regexes = statuses.map((s) => new RegExp(`^${s}$`, 'i'));
+      query.$or = [{ status: { $in: regexes } }, { mobileStatus: { $in: regexes } }];
     }
     return requests.find(query).sort({ createdAt: -1 }).toArray();
   }
@@ -1001,7 +1049,8 @@ async function listRequestsForUser(user, statuses) {
   );
   if (statuses && statuses.length > 0) {
     items = items.filter((record) =>
-      statuses.includes(String(record.status || '').toLowerCase()),
+      statuses.includes(String(record.status || '').toLowerCase()) ||
+      statuses.includes(String(record.mobileStatus || '').toLowerCase())
     );
   }
   return items.sort(
@@ -1344,12 +1393,7 @@ app.post(
   receiptUpload.single('receipt'),
   async (req, res, next) => {
     try {
-      if (!cloudinaryEnabled) {
-        return res.status(500).json({
-          success: false,
-          message: 'Cloudinary is not configured.',
-        });
-      }
+
 
       if (req.fileValidationError) {
         return res.status(400).json({
@@ -1368,7 +1412,7 @@ app.post(
       const paymentType = String(req.body?.paymentType || '')
         .trim()
         .toLowerCase();
-      if (paymentType !== 'onsite' && paymentType !== 'gcash') {
+      if (paymentType !== 'onsite' && paymentType !== 'gcash' && paymentType !== 'receipt') {
         return res.status(400).json({
           success: false,
           message: 'Invalid payment type.',
@@ -1387,12 +1431,24 @@ app.post(
       const amount = toNonNegativeNumber(req.body?.amount, 0);
       const status = String(req.body?.status || 'pending_completion').trim();
 
+      let trueRequestId = purpose;
+      if (dbEnabled) {
+        const reqRecord = await requests.findOne(
+          { userId: new ObjectId(String(user._id || user.id)), docName, purpose },
+          { sort: { createdAt: -1 } }
+        );
+        if (reqRecord && reqRecord.requestId) {
+          trueRequestId = reqRecord.requestId;
+        }
+      }
+
       const uploadResult = await uploadReceiptToCloudinary(req.file);
       const receipt = buildReceiptRecord({
         user,
         paymentType,
         docName,
         purpose,
+        trueRequestId, // Pass the real requestId
         amount,
         status: status || 'pending_completion',
         imageUrl: uploadResult?.secure_url || uploadResult?.url || '',
@@ -1483,6 +1539,16 @@ app.post('/requests', requireAuth, async (req, res, next) => {
 
     const requestRecord = {
       requestId: makeRequestId(),
+      name: `${user.firstName || ''} ${user.lastName || ''}`.trim(),
+      studentId: user.studentId || '',
+      course: user.course || user.program || '',
+      yearLevel: user.yearLevel || '',
+      status: 'Pending',
+      documentType: docName,
+      purpose: purpose,
+      dateRequested: new Date(),
+
+      // Legacy mobile fields
       userId: user._id || user.id,
       email: user.email,
       role: user.role || '',
@@ -1490,16 +1556,13 @@ app.post('/requests', requireAuth, async (req, res, next) => {
       lastName: user.lastName || '',
       personalEmail: user.personalEmail || user.email || '',
       schoolEmail: user.schoolEmail || '',
-      studentId: user.role === 'alumni' ? '' : user.studentId || '',
       yearGraduated: user.role === 'alumni' ? user.yearLevel || '' : '',
-      yearLevel: user.role === 'alumni' ? '' : user.yearLevel || '',
       program: user.program || '',
       docName,
-      purpose,
       documentPrice,
       processingFee,
       totalAmount,
-      status: 'pending_payment',
+      mobileStatus: 'pending_payment',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -1640,12 +1703,7 @@ app.post(
   profileUpload.single('photo'),
   async (req, res, next) => {
     try {
-      if (!cloudinaryEnabled) {
-        return res.status(500).json({
-          success: false,
-          message: 'Cloudinary is not configured.',
-        });
-      }
+
 
       if (req.fileValidationError) {
         return res.status(400).json({
@@ -1862,7 +1920,8 @@ app.post('/auth/register', async (req, res, next) => {
       schoolEmail: isStudent ? normalizeEmail(schoolEmail) : '',
       studentId: isStudent ? parsed.studentId : '',
       yearLevel: parsed.yearLevel,
-      program: parsed.program,
+      course: parsed.program,
+      program: parsed.program, // kept for backward compatibility with mobile code
       createdAt: new Date().toISOString(),
     });
 
@@ -2002,7 +2061,8 @@ app.post('/auth/register/verify-otp', async (req, res, next) => {
       schoolEmail: normalizeEmail(payload.schoolEmail || ''),
       studentId: payload.studentId || '',
       yearLevel: payload.yearLevel,
-      program: payload.program,
+      course: payload.program,
+      program: payload.program, // kept for backward compatibility with mobile code
       createdAt: new Date().toISOString(),
     });
 
@@ -2274,7 +2334,7 @@ async function start() {
       const db = client.db(MONGODB_DB_NAME);
       alumniUsers = db.collection(alumniCollectionName);
       studentUsers = db.collection(studentsCollectionName);
-      receipts = db.collection('receipts');
+      receipts = db.collection('transactions');
       requests = db.collection('requests');
       notifications = db.collection('notifications');
       transactions = db.collection('transactions');
