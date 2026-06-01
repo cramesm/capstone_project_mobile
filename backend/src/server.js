@@ -2400,11 +2400,9 @@ async function start() {
     console.warn('DISABLE_DB is true. Using in-memory users only.');
   }
 
-  if (!process.env.VERCEL) {
-    app.listen(Number(PORT), () => {
-      console.log(`Auth API listening on port ${PORT}`);
-    });
-  }
+  app.listen(Number(PORT), () => {
+    console.log(`Auth API listening on port ${PORT}`);
+  });
 }
 
 setInterval(cleanupOtpData, 60 * 1000);
