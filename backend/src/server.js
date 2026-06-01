@@ -2400,9 +2400,11 @@ async function start() {
     console.warn('DISABLE_DB is true. Using in-memory users only.');
   }
 
-  app.listen(Number(PORT), () => {
-    console.log(`Auth API listening on port ${PORT}`);
-  });
+  if (!process.env.VERCEL) {
+    app.listen(Number(PORT), () => {
+      console.log(`Auth API listening on port ${PORT}`);
+    });
+  }
 }
 
 setInterval(cleanupOtpData, 60 * 1000);
@@ -2411,4 +2413,6 @@ start().catch((error) => {
   console.error('Failed to start server:', error);
 });
 
-export default app;
+export default function handler(req, res) {
+  return app(req, res);
+}
