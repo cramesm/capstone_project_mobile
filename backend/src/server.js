@@ -20,7 +20,7 @@ const {
   PORT = '4000',
   DISABLE_DB = 'false',
   MONGODB_URI = '',
-  MONGODB_DB_NAME = 'verifitor',
+  MONGODB_DB_NAME = 'test',
   MONGODB_USERS_COLLECTION = 'users',
   MONGODB_STUDENTS_COLLECTION = 'students',
   MONGODB_ALUMNI_COLLECTION = 'alumni',
