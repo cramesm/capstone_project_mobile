@@ -1,9 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-final String authApiBaseUrl = defaultTargetPlatform == TargetPlatform.android
-    ? 'http://10.0.2.2:4000'
-    : 'http://localhost:4000';
+// We are using your exact PC Wi-Fi IP address so your real phone can connect to the mobile backend
+final String authApiBaseUrl = 'http://192.168.100.8:4000';
 
 const Color fbPrimary = Color(0xFF547792); // Muted Blue
 const Color fbSecondary = Color(0xFF94B4C1); // Light Steel Blue
