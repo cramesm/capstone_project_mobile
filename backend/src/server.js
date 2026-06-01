@@ -709,22 +709,7 @@ function buildReceiptResponse(record) {
 
 async function uploadReceiptToCloudinary(file) {
   if (!cloudinaryEnabled) {
-    // Fallback to local upload in the web backend directory
-    const fileName = `receipt-${Date.now()}-${Math.round(Math.random() * 1e9)}${path.extname(file.originalname)}`;
-    const uploadDir = 'c:\\Users\\Sarah\\VeriFitorWeb\\Verifitor-Web-main\\backend\\uploads\\receipts';
-    
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    
-    const filePath = path.join(uploadDir, fileName);
-    await fs.promises.writeFile(filePath, file.buffer);
-    
-    return {
-      secure_url: `/uploads/receipts/${fileName}`,
-      url: `/uploads/receipts/${fileName}`,
-      public_id: `local-${fileName}`
-    };
+    throw new Error('Cloudinary is not configured. Local uploads are not supported on Vercel. Please add CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET to Vercel environment variables.');
   }
   if (!file?.buffer) {
     throw new Error('Receipt image is required.');
@@ -751,22 +736,7 @@ async function uploadReceiptToCloudinary(file) {
 
 async function uploadProfilePhotoToCloudinary(file) {
   if (!cloudinaryEnabled) {
-    // Fallback to local upload in the web backend directory
-    const fileName = `profile-${Date.now()}-${Math.round(Math.random() * 1e9)}${path.extname(file.originalname)}`;
-    const uploadDir = 'c:\\Users\\Sarah\\VeriFitorWeb\\Verifitor-Web-main\\backend\\uploads\\profiles';
-    
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    
-    const filePath = path.join(uploadDir, fileName);
-    await fs.promises.writeFile(filePath, file.buffer);
-    
-    return {
-      secure_url: `/uploads/profiles/${fileName}`,
-      url: `/uploads/profiles/${fileName}`,
-      public_id: `local-${fileName}`
-    };
+    throw new Error('Cloudinary is not configured. Local uploads are not supported on Vercel. Please add CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET to Vercel environment variables.');
   }
   if (!file?.buffer) {
     throw new Error('Profile photo is required.');
@@ -2420,6 +2390,15 @@ setInterval(cleanupOtpData, 60 * 1000);
 
 start().catch((error) => {
   console.error('Failed to start server:', error);
+});
+
+app.use((err, req, res, next) => {
+  console.error("Unhandled Error:", err);
+  res.status(500).json({
+    success: false,
+    message: err.message || 'Internal Server Error',
+    stack: process.env.NODE_ENV === 'production' ? undefined : err.stack
+  });
 });
 
 export default function handler(req, res) {
