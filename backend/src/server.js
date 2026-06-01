@@ -139,6 +139,14 @@ app.use(
   }),
 );
 app.use(express.json({ limit: '1mb' }));
+app.use(async (req, res, next) => {
+  try {
+    await ensureDb();
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
 app.use('/uploads', express.static(uploadsDir));
 
 const authLimiter = rateLimit({
@@ -162,6 +170,24 @@ const memoryReceipts = [];
 const memoryRequests = [];
 const memoryNotifications = [];
 const memoryTransactions = [];
+
+async function ensureDb() {
+  if (!dbEnabled) return;
+  if (alumniUsers && studentUsers) return;
+
+  try {
+    await client.connect();
+    const db = client.db(MONGODB_DB_NAME);
+    alumniUsers = db.collection(alumniCollectionName);
+    studentUsers = db.collection(studentsCollectionName);
+    receipts = db.collection('transactions');
+    requests = db.collection('requests');
+    notifications = db.collection('notifications');
+    transactions = db.collection('transactions');
+  } catch (error) {
+    throw new Error(`MongoDB connection failed: ${error.message}`);
+  }
+}
 
 const defaultDocumentPrice = 100;
 const defaultProcessingFee = 0;
