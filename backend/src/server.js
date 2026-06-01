@@ -52,12 +52,14 @@ const studentsCollectionName = String(
   MONGODB_STUDENTS_COLLECTION || 'students',
 );
 
+let startupError = null;
+
 if (dbEnabled && !MONGODB_URI) {
-  throw new Error('Missing MONGODB_URI in backend/.env');
+  startupError = 'Missing MONGODB_URI in backend/.env';
 }
 
 if (!JWT_SECRET) {
-  throw new Error('Missing JWT_SECRET in backend/.env');
+  startupError = startupError || 'Missing JWT_SECRET in backend/.env';
 }
 
 const cloudinaryEnabled = Boolean(
@@ -138,6 +140,13 @@ app.use(
     origin: ALLOWED_ORIGIN === '*' ? true : ALLOWED_ORIGIN,
   }),
 );
+
+app.use((req, res, next) => {
+  if (startupError) {
+    return res.status(500).json({ error: startupError });
+  }
+  next();
+});
 app.use(express.json({ limit: '1mb' }));
 app.use(async (req, res, next) => {
   try {
