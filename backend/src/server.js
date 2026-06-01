@@ -2369,9 +2369,12 @@ app.use((err, _req, res, _next) => {
     });
   }
   console.error(err);
-  res.status(500).json({ success: false, message: 'Internal server error.' });
+  res.status(500).json({ 
+    success: false, 
+    message: err.message || 'Internal server error.',
+    stack: err.stack 
+  });
 });
-
 async function start() {
   if (dbEnabled) {
     try {
