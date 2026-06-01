@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 // Pointing to your deployed Vercel backend
-final String authApiBaseUrl = 'https://capstone-project-mobile-backend.vercel.app';
+final String authApiBaseUrl = 'https://capstone-project-mobile.vercel.app';
 
 const Color fbPrimary = Color(0xFF547792); // Muted Blue
 const Color fbSecondary = Color(0xFF94B4C1); // Light Steel Blue
