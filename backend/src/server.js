@@ -2394,22 +2394,23 @@ async function start() {
         console.warn('Could not create indexes (permission denied):', err.message);
       }
     } catch (error) {
-      throw new Error(`MongoDB connection failed: ${error.message}`);
+      console.error(`MongoDB connection failed: ${error.message}`);
     }
   } else {
     console.warn('DISABLE_DB is true. Using in-memory users only.');
   }
 
-  app.listen(Number(PORT), () => {
-    console.log(`Auth API listening on port ${PORT}`);
-  });
+  if (!process.env.VERCEL) {
+    app.listen(Number(PORT), () => {
+      console.log(`Auth API listening on port ${PORT}`);
+    });
+  }
 }
 
 setInterval(cleanupOtpData, 60 * 1000);
 
 start().catch((error) => {
   console.error('Failed to start server:', error);
-  process.exit(1);
 });
 
 export default app;
