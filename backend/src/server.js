@@ -1611,6 +1611,19 @@ app.post('/requests', requireAuth, async (req, res, next) => {
     };
 
     const requestId = await createRequestRecord(requestRecord);
+    
+    if (dbEnabled) {
+      await notifications.insertOne({
+        message: `Your document request for ${docName} has been submitted!`,
+        isRead: false,
+        email: user.email || '',
+        userId: user._id || user.id,
+        date: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
+    }
+
     return res.status(201).json({
       success: true,
       requestId: String(requestId),
