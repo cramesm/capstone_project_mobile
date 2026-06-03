@@ -8,9 +8,12 @@ import '../screens/history_detail_screen.dart';
 class HistoryItem {
   final String title;
   final DateTime date;
-  final String purpose; // New
+  final String purpose;
   final String status;  // e.g., "Released", "Rejected"
   final bool isApproved;
+  final String paymentType;
+  final double totalAmount;
+  final DateTime? datePaid;
 
   HistoryItem({
     required this.title, 
@@ -18,6 +21,9 @@ class HistoryItem {
     required this.purpose,
     required this.status,
     required this.isApproved,
+    this.paymentType = '',
+    this.totalAmount = 0,
+    this.datePaid,
   });
 }
 

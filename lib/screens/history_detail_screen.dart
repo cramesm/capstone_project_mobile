@@ -44,10 +44,15 @@ class HistoryDetailScreen extends StatelessWidget {
             ]),
             SizedBox(height: 15.h),
             _buildCard("Payment Summary", [
-              _row("Amount Paid:", "PHP 110.00"),
-              _row("Payment Method:", "GCash"),
-              _row("Reference No:", "8234-123-9901"),
-              _row("Date Paid:", DateFormat('MMM d, y').format(item.date)),
+              _row("Amount Paid:", item.totalAmount > 0 
+                ? "PHP ${item.totalAmount.toStringAsFixed(2)}" 
+                : "N/A"),
+              _row("Payment Method:", item.paymentType.isNotEmpty 
+                ? item.paymentType 
+                : "N/A"),
+              _row("Date Paid:", item.datePaid != null 
+                ? DateFormat('MMM d, y').format(item.datePaid!) 
+                : "N/A"),
             ]),
           ],
         ),

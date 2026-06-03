@@ -57,6 +57,15 @@ class _HomeScreenState extends State<HomeScreen> {
     return normalized == 'completed';
   }
 
+  bool _isRejectedStatus(String status) {
+    final normalized = status.trim().toLowerCase();
+    return normalized == 'rejected';
+  }
+
+  bool _isHistoryStatus(String status) {
+    return _isCompletedStatus(status) || _isRejectedStatus(status);
+  }
+
   bool _isApprovedStatus(String status) {
     final normalized = status.trim().toLowerCase();
     return normalized == 'approved' ||
@@ -237,14 +246,23 @@ class _HomeScreenState extends State<HomeScreen> {
         if (docName.isEmpty) continue;
         final purpose = item['purpose']?.toString().trim() ?? '';
         final statusRaw = item['status']?.toString().trim() ?? 'completed';
+
+        // Only show completed and rejected items in history
+        if (!_isHistoryStatus(statusRaw)) continue;
+
         final createdAt = _parseRequestDate(item['createdAt']);
         final status = _displayStatus(statusRaw);
+        final paymentType = item['paymentType']?.toString().trim() ?? '';
+        final totalAmount = _parseAmount(item['totalAmount']);
         history.add(HistoryItem(
           title: docName,
           date: createdAt,
           purpose: purpose,
           status: status,
           isApproved: _isApprovedStatus(statusRaw),
+          paymentType: paymentType,
+          totalAmount: totalAmount,
+          datePaid: createdAt,
         ));
       }
 
